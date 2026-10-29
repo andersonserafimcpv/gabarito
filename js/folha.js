@@ -131,6 +131,8 @@ const INSTRUCOES_PADRAO = [
   "6. Assinale apenas uma alternativa para cada questão; mais de uma marcação anulará a resposta;",
   "7. Não amasse, dobre ou rasure esta folha.",
 ];
+const METODOLOGIA_PADRAO = "AULAS EXPOSITIVAS; RESOLUÇÃO DE EXERCÍCIOS; ATIVIDADES SISTEMÁTICAS;";
+const metodologiaDe = (av) => (av.metodologia != null && String(av.metodologia).trim() !== "" ? av.metodologia : METODOLOGIA_PADRAO);
 const CABECALHO_PADRAO = { instituicao: "SERVIÇO SOCIAL DA INDÚSTRIA - SESI – DR PERNAMBUCO" };
 
 /* Valor total da prova (soma dos pontos de cada questão) */
@@ -241,7 +243,7 @@ function opsFolha(d) {
     linhas.slice(0, 6).forEach((ln, i) => L({ t: "text", s: ln, x: X0 + 1.8, y: y + 3.8 + i * 2.6, size: 6, bold: true, color: "#222222" }));
   } else {
     faixa(CAB.conteudo.y, CAB.conteudo.h, "Conteúdo", "vivenciado", av.conteudo);
-    faixa(CAB.metodo.y, CAB.metodo.h, "Metodologia", "aplicada", av.metodologia);
+    faixa(CAB.metodo.y, CAB.metodo.h, "Metodologia", "aplicada", metodologiaDe(av));
   }
 
   // Instruções | Exemplo | Desempenho por nota
@@ -575,7 +577,7 @@ async function gerarDOCX(folhas, aoProgredir) {
     } else {
       corpo += faixaW("Conteúdo", "vivenciado", av.conteudo, CAB.conteudo.h);
       corpo += wEspaco(CAB.metodo.y - CAB.conteudo.y - CAB.conteudo.h);
-      corpo += faixaW("Metodologia", "aplicada", av.metodologia, CAB.metodo.h);
+      corpo += faixaW("Metodologia", "aplicada", metodologiaDe(av), CAB.metodo.h);
     }
     corpo += wEspaco(CAB.linha.y - CAB.metodo.y - CAB.metodo.h);
     const instr = instrucoesQueCabem(av, 100, CAB.linha.h);
