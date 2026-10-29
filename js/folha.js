@@ -4,9 +4,11 @@
 const A4 = { w: 210, h: 297 };
 /* Quadrados pretos (centros), na ordem TL, TR, BR, BL. Ficam só em volta da área do gabarito:
    o celular pode chegar mais perto e a leitura fica mais nítida. */
-const MARCAS = { lado: 8, centros: [[15, 106], [195, 106], [195, 262], [15, 262]] };
+const MARCAS = { lado: 8, centros: [[15, 114], [195, 114], [195, 262], [15, 262]] };
 // QR code dentro da moldura, junto ao quadrado superior esquerdo
-const QR = { x: 23, y: 103.5, lado: 24 };
+const QR = { x: 23, y: 111.5, lado: 22 };
+/* Posições do cabeçalho (mm), usadas no PDF e no Word */
+const CAB = { campos: [33, 41.3, 49.6], hCampo: 6.8, conteudo: { y: 58.4, h: 8 }, metodo: { y: 68, h: 8 }, linha: { y: 77.6, h: 26 } };
 const LETRAS = "ABCDE";
 const VERSOES = "ABCD";
 // Tipos de questão: número de alternativas (2 a 5) ou C = Certo/Errado
@@ -32,7 +34,7 @@ function parseLayout(s) {
 }
 
 /* Geometria das questões dentro da moldura (em mm na folha), a partir do layout */
-const GRADE = { top: 139, bottom: 259, x0: 21, x1: 189, pitchMin: 4.8, pxMin: 4.3 };
+const GRADE = { top: 145, bottom: 258.5, x0: 21, x1: 189, pitchMin: 4.5, pxMin: 4.0 };
 function geometria(L) {
   const secs = L.secs, multi = secs.length > 1;
   const slots = [], qSec = [];
@@ -46,17 +48,18 @@ function geometria(L) {
   const maxAlt = Math.max(...secs.map((s) => letrasTipo(s.t).length));
   const lab = nQ >= 100 ? 9.5 : 8.5, gap = 3.5;
   const maxCols = Math.max(1, Math.floor((larg + gap) / (lab + maxAlt * GRADE.pxMin + gap)));
-  let cols = Math.min(maxCols, Math.max(1, Math.ceil(slots.length / 16)));
+  // de preferência duas colunas (bolinhas maiores); mais colunas só quando não cabe
+  let cols = Math.min(maxCols, 2);
   let rows, pitch;
   for (;;) {
     rows = Math.ceil(slots.length / cols);
-    pitch = rows > 1 ? Math.min(7.6, (bottom - top) / (rows - 1)) : 7.6;
+    pitch = rows > 1 ? Math.min(9, (bottom - top) / (rows - 1)) : 9;
     if (pitch >= 5.4 || cols >= maxCols) break;
     cols++;
   }
   const gapC = cols <= 2 ? 14 : cols <= 4 ? 6 : gap;
-  const px = Math.min(6.6, ((larg + gapC) / cols - lab - gapC) / maxAlt);
-  const r = Math.min(2.4, pitch * 0.36, px * 0.38);
+  const px = Math.min(8.5, ((larg + gapC) / cols - lab - gapC) / maxAlt);
+  const r = Math.min(3, pitch * 0.36, px * 0.38);
   const colW = lab + maxAlt * px + gapC;
   const x0 = 105 - (cols * colW - gapC) / 2;
   const slotDe = [];
@@ -69,23 +72,23 @@ function geometria(L) {
     letras: (q) => letrasTipo(secs[qSec[q]].t),
     xy,
     pos(q, a) { const [x, yy] = xy(slotDe[q]); return [x + lab + (a + 0.5) * px, yy]; },
-    numPos(lin, d) { return [120 + d * 7.2, 113 + lin * 8]; },
+    numPos(lin, d) { return [72 + d * 7.2, 118 + lin * 8.5]; },
   };
 }
 
-/* Conteúdo do QR: GB4|avaliação|turma|aluno|versão|layout (GB4 = folha com a moldura em volta do gabarito) */
+/* Conteúdo do QR: GB5|avaliação|turma|aluno|versão|layout (GB5 = folha com a moldura em volta do gabarito) */
 function codigoQR(av, turmaId, alunoId, ver) {
-  return ["GB4", av.id, turmaId || "-", alunoId || "-", ver || "A", layoutStr(layoutDe(av))].join("|");
+  return ["GB5", av.id, turmaId || "-", alunoId || "-", ver || "A", layoutStr(layoutDe(av))].join("|");
 }
 function lerCodigoQR(txt) {
   const p = String(txt || "").split("|");
-  if (p[0] !== "GB4" || p.length < 6) return null;
+  if (p[0] !== "GB5" || p.length < 6) return null;
   const L = parseLayout(p[5]);
   if (!L) return null;
   return { avId: p[1], turmaId: p[2] === "-" ? null : p[2], alunoId: p[3] === "-" ? null : p[3], ver: p[4] || "A", L };
 }
 /* Folha impressa na versão anterior (quadrados nos cantos da página) */
-const ehCodigoAntigo = (txt) => /^GB3\|/.test(String(txt || ""));
+const ehCodigoAntigo = (txt) => /^GB[34]\|/.test(String(txt || ""));
 
 /* ---------- Código de barras Code 128 ---------- */
 const C128 = [11011001100, 11001101100, 11001100110, 10010011000, 10010001100, 10001001100, 10011001000, 10011000100, 10001100100, 11001001000, 11001000100, 11000100100, 10110011100, 10011011100, 10011001110, 10111001100, 10011101100, 10011100110, 11001110010, 11001011100, 11001001110, 11011100100, 11001110100, 11101101110, 11101001100, 11100101100, 11100100110, 11101100100, 11100110100, 11100110010, 11011011000, 11011000110, 11000110110, 10100011000, 10001011000, 10001000110, 10110001000, 10001101000, 10001100010, 11010001000, 11000101000, 11000100010, 10110111000, 10110001110, 10001101110, 10111011000, 10111000110, 10001110110, 11101110110, 11010001110, 11000101110, 11011101000, 11011100010, 11011101110, 11101011000, 11101000110, 11100010110, 11101101000, 11101100010, 11100011010, 11101111010, 11001000010, 11110001010, 10100110000, 10100001100, 10010110000, 10010000110, 10000101100, 10000100110, 10110010000, 10110000100, 10011010000, 10011000010, 10000110100, 10000110010, 11000010010, 11001010000, 11110111010, 11000010100, 10001111010, 10100111100, 10010111100, 10010011110, 10111100100, 10011110100, 10011110010, 11110100100, 11110010100, 11110010010, 11011011110, 11011110110, 11110110110, 10101111000, 10100011110, 10001011110, 10111101000, 10111100010, 11110101000, 11110100010, 10111011110, 10111101110, 11101011110, 11110101110, 11010000100, 11010010000, 11010011100, 1100011101011];
@@ -138,6 +141,30 @@ function valorProva(av) {
     total += p;
   }
   return Math.round(total * 100) / 100;
+}
+
+/* Instruções na maior fonte em que cabem no quadro (largura e altura em mm) */
+function instrucoesQueCabem(av, larg, alt) {
+  const brutas = av.instrucoes && av.instrucoes.trim() ? av.instrucoes.split("\n").filter((x) => x.trim()) : INSTRUCOES_PADRAO;
+  let tam = 5.2, linhas = [];
+  for (const t of [7.2, 6.8, 6.4, 6, 5.6, 5.2]) {
+    linhas = brutas.flatMap((ln) => quebrarTexto(ln, t, larg));
+    tam = t;
+    if (6.2 + (linhas.length - 1) * t * 0.42 <= alt - 1.5) break;
+  }
+  const passo = tam * 0.42;
+  return { linhas: linhas.slice(0, Math.floor((alt - 7.7) / passo) + 1), tam, passo, brutas };
+}
+/* Linha de exemplo com a bolinha B pintada (caixa de 40 x 7 mm) */
+const EXEMPLO = { x: 121, dy: 11, w: 40, h: 7 };
+function desenharExemplo(L, x, y) {
+  L({ t: "rrect", x, y, w: EXEMPLO.w, h: EXEMPLO.h, stroke: "#b8b8b8", lw: 0.2, rx: 1 });
+  L({ t: "text", s: "00", x: x + 2, y: y + 3.5, size: 7.5, color: "#333333", mid: true });
+  for (let a = 0; a < 4; a++) {
+    const cx = x + 10.5 + a * 7.4, cy = y + 3.5;
+    if (a === 1) L({ t: "circle", x: cx, y: cy, r: 2.4, fill: "#111111" });
+    else { L({ t: "circle", x: cx, y: cy, r: 2.4, stroke: "#9a9a9a", lw: 0.25 }); L({ t: "text", s: LETRAS[a], x: cx, y: cy + 0.1, size: 6, color: "#9a9a9a", align: "center", mid: true }); }
+  }
 }
 
 /* Monta a lista de operações de desenho de uma folha.
@@ -197,43 +224,39 @@ function opsFolha(d) {
     campo(145, 49.6, 54, 6.8, "Turno:", turno);
   }
 
-  // Conteúdo vivenciado (ou quadro de transcrição) e linha de instruções / metodologia / nota
-  let yLinha;
-  if (g.L.trans) {
-    const y = 58.6, h = 14;
-    caixa(X0, y, LARG, h);
-    L({ t: "line", x1: 58, y1: y, x2: 58, y2: y + h, color: borda, w: 0.25 });
-    const linhas = quebrarTexto((av.transcricaoTexto || "ATENÇÃO: TRANSCREVA AQUI, COM A SUA CALIGRAFIA USUAL, A FRASE APRESENTADA NA CAPA DO SEU CADERNO DE QUESTÕES.").toUpperCase(), 5.8, 44, true);
-    linhas.slice(0, 5).forEach((ln, i) => L({ t: "text", s: ln, x: X0 + 1.8, y: y + 3.4 + i * 2.45, size: 5.8, bold: true, color: "#222222" }));
-    yLinha = y + h + 1.6;
-  } else {
-    const y = 58.6, h = 9;
+  // Conteúdo vivenciado e metodologia (faixas finas) ou quadro de transcrição
+  const faixa = (y, h, rot1, rot2, texto) => {
     caixa(X0, y, LARG, h);
     L({ t: "rect", x: X0 + 0.15, y: y + 0.15, w: 27.7, h: h - 0.3, fill: cinzaFundo });
     L({ t: "line", x1: X0 + 28, y1: y, x2: X0 + 28, y2: y + h, color: borda, w: 0.25 });
-    L({ t: "text", s: "Conteúdo", x: X0 + 1.8, y: y + 3.8, size: 7, bold: true, color: "#333333" });
-    L({ t: "text", s: "vivenciado", x: X0 + 1.8, y: y + 7, size: 7, bold: true, color: "#333333" });
-    if (av.conteudo) quebrarTexto(av.conteudo, 7.5, LARG - 32).slice(0, 2).forEach((ln, i, arr) => L({ t: "text", s: ln, x: X0 + 30.5, y: y + (arr.length > 1 ? 3.7 + i * 3.3 : 5.6), size: 7.5, color: tinta }));
-    yLinha = y + h + 1.9;
+    L({ t: "text", s: rot1, x: X0 + 1.8, y: y + h / 2 - 0.4, size: 6.8, bold: true, color: "#333333" });
+    L({ t: "text", s: rot2, x: X0 + 1.8, y: y + h / 2 + 2.5, size: 6.8, bold: true, color: "#333333" });
+    if (texto) quebrarTexto(texto, 7.5, LARG - 32).slice(0, 2).forEach((ln, i, arr) => L({ t: "text", s: ln, x: X0 + 30.5, y: y + (arr.length > 1 ? h / 2 - 0.6 + i * 3.2 : h / 2 + 1.2), size: 7.5, color: tinta }));
+  };
+  if (g.L.trans) {
+    const y = CAB.conteudo.y, h = CAB.metodo.y + CAB.metodo.h - y;
+    caixa(X0, y, LARG, h);
+    L({ t: "line", x1: 58, y1: y, x2: 58, y2: y + h, color: borda, w: 0.25 });
+    const linhas = quebrarTexto((av.transcricaoTexto || "ATENÇÃO: TRANSCREVA AQUI, COM A SUA CALIGRAFIA USUAL, A FRASE APRESENTADA NA CAPA DO SEU CADERNO DE QUESTÕES.").toUpperCase(), 6, 44, true);
+    linhas.slice(0, 6).forEach((ln, i) => L({ t: "text", s: ln, x: X0 + 1.8, y: y + 3.8 + i * 2.6, size: 6, bold: true, color: "#222222" }));
+  } else {
+    faixa(CAB.conteudo.y, CAB.conteudo.h, "Conteúdo", "vivenciado", av.conteudo);
+    faixa(CAB.metodo.y, CAB.metodo.h, "Metodologia", "aplicada", av.metodologia);
   }
-  const hLinha = 101 - yLinha;
-  caixa(X0, yLinha, 100, hLinha, "INSTRUÇÕES:");
-  // maior fonte em que todas as instruções cabem no quadro
-  const brutas = av.instrucoes && av.instrucoes.trim() ? av.instrucoes.split("\n").filter((x) => x.trim()) : INSTRUCOES_PADRAO;
-  let tamI = 5.4, instr = [];
-  for (const t of [7.4, 7, 6.6, 6.2, 5.8, 5.4]) {
-    instr = brutas.flatMap((ln) => quebrarTexto(ln, t, 96));
-    tamI = t;
-    if (6.4 + (instr.length - 1) * t * 0.42 <= hLinha - 1.5) break;
-  }
-  const passoI = tamI * 0.42;
-  const cabemI = Math.floor((hLinha - 7.9) / passoI) + 1;
-  instr.slice(0, cabemI).forEach((ln, i) => L({ t: "text", s: ln, x: X0 + 1.8, y: yLinha + 7.6 + i * passoI, size: tamI, color: "#222222" }));
-  caixa(113, yLinha, 51, hLinha, "METODOLOGIA APLICADA:");
-  if (av.metodologia) quebrarTexto(av.metodologia, 6.5, 47).slice(0, Math.floor((hLinha - 6.4) / 2.6) + 1).forEach((ln, i) => L({ t: "text", s: ln, x: 114.8, y: yLinha + 7.6 + i * 2.6, size: 6.5, color: "#222222" }));
-  caixa(166, yLinha, 33, hLinha, "DESEMPENHO POR NOTA");
+
+  // Instruções | Exemplo | Desempenho por nota
+  const yLinha = CAB.linha.y, hLinha = CAB.linha.h;
+  caixa(X0, yLinha, 104, hLinha, "INSTRUÇÕES:");
+  const instr = instrucoesQueCabem(av, 100, hLinha);
+  instr.linhas.forEach((ln, i) => L({ t: "text", s: ln, x: X0 + 1.8, y: yLinha + 7.4 + i * instr.passo, size: instr.tam, color: "#222222" }));
+  const temCE = (av.secoes || []).some((s) => String(s.tipo) === "C");
+  caixa(117, yLinha, 48, hLinha, "EXEMPLO:");
+  L({ t: "text", s: "Preencha a bolinha por completo:", x: 118.8, y: yLinha + 8.6, size: 6.5, color: "#222222" });
+  desenharExemplo(L, EXEMPLO.x, yLinha + EXEMPLO.dy);
+  if (temCE) L({ t: "text", s: "C = Certo   E = Errado", x: 141, y: yLinha + 22.6, size: 6.5, bold: true, color: "#333333", align: "center" });
+  caixa(167, yLinha, 32, hLinha, "DESEMPENHO POR NOTA");
   const valor = valorProva(av);
-  if (valor) L({ t: "text", s: "Valor: " + valor.toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 2 }), x: 182.5, y: yLinha + hLinha - 2, size: 6.5, color: "#777777", align: "center" });
+  if (valor) L({ t: "text", s: "Valor: " + valor.toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 2 }), x: 183, y: yLinha + hLinha - 2, size: 6.5, color: "#777777", align: "center" });
 
   // Moldura do gabarito: fundo branco (cobre o timbrado), borda leve e os 4 quadrados
   const [[mx0, my0], , [mx1, my1]] = MARCAS.centros, ml = MARCAS.lado / 2;
@@ -241,27 +264,14 @@ function opsFolha(d) {
   L({ t: "rrect", x: mx0 - ml, y: my0 - ml, w: mx1 - mx0 + 2 * ml, h: my1 - my0 + 2 * ml, stroke: "#c8c8c8", lw: 0.3, rx: 1.5 });
   for (const [x, y] of MARCAS.centros) L({ t: "rect", x: x - ml, y: y - ml, w: MARCAS.lado, h: MARCAS.lado, fill: "#000000" });
 
-  // Faixa superior da moldura: QR code, exemplo e código de barras ou grade do Nº de chamada
+  // Faixa superior da moldura: QR code, código de barras ou grade do Nº de chamada, e lembrete
   L({ t: "qr", s: codigoQR(av, turma && turma.id, aluno && aluno.id, ver), x: QR.x, y: QR.y, size: QR.lado });
-  const temCE = (av.secoes || []).some((s) => String(s.tipo) === "C");
-  const ey = 104, eh = 23;
-  caixa(51, ey, 47, eh, "EXEMPLO:");
-  L({ t: "text", s: "Preencha a bolinha por completo:", x: 52.8, y: ey + 8.6, size: 6.5, color: "#222222" });
-  L({ t: "rrect", x: 55, y: ey + 10.6, w: 39, h: 7, stroke: borda, lw: 0.2, rx: 1 });
-  L({ t: "text", s: "00", x: 57, y: ey + 14.1, size: 7.5, color: "#333333", mid: true });
-  for (let a = 0; a < 4; a++) {
-    const cx = 65 + a * 7.4, cy = ey + 14.1;
-    if (a === 1) L({ t: "circle", x: cx, y: cy, r: 2.4, fill: "#111111" });
-    else { L({ t: "circle", x: cx, y: cy, r: 2.4, stroke: cinzaBorda, lw: 0.25 }); L({ t: "text", s: LETRAS[a], x: cx, y: cy + 0.1, size: 6, color: "#9a9a9a", align: "center", mid: true }); }
-  }
-  if (temCE) L({ t: "text", s: "C = Certo   E = Errado", x: 74.5, y: ey + 21.3, size: 6.5, bold: true, color: "#333333", align: "center" });
-
   if (g.num) {
-    caixa(101, ey, 89, eh);
-    L({ t: "text", s: "Nº DE CHAMADA", x: 102.8, y: ey + 4, size: 6.5, bold: true, color: "#333333" });
+    caixa(49, 111.5, 96, 22);
+    L({ t: "text", s: "Nº DE CHAMADA", x: 50.8, y: 115.2, size: 6.5, bold: true, color: "#333333" });
     ["Dez.", "Unid."].forEach((rot, lin) => {
       const [, cy] = g.numPos(lin, 0);
-      L({ t: "text", s: rot, x: 115.6, y: cy + 0.1, size: 6.5, color: "#444444", align: "right", mid: true });
+      L({ t: "text", s: rot, x: 67.6, y: cy + 0.1, size: 6.5, color: "#444444", align: "right", mid: true });
       for (let dg = 0; dg < 10; dg++) {
         const [cx] = g.numPos(lin, dg);
         L({ t: "circle", x: cx, y: cy, r: 2.3, stroke: cinzaBorda, lw: 0.25 });
@@ -273,11 +283,14 @@ function opsFolha(d) {
     const bars = code128(cod);
     const mod = Math.min(0.4, 56 / bars.length);
     const bw = bars.length * mod;
-    L({ t: "bars", bars, x: 146 - bw / 2, y: 105.5, h: 13.5, mod });
-    L({ t: "text", s: cod.split("").join(" "), x: 146, y: 123.5, size: 9, align: "center", font: "courier" });
+    L({ t: "bars", bars, x: 92 - bw / 2, y: 112.5, h: 15, mod });
+    L({ t: "text", s: cod.split("").join(" "), x: 92, y: 132.4, size: 9, align: "center", font: "courier" });
   } else {
-    L({ t: "text", s: "Folha neutra: escreva seu nome no campo Aluno(a).", x: 146, y: 116, size: 7, color: "#777777", align: "center", maxW: 86 });
+    L({ t: "text", s: "Folha neutra: escreva seu nome no campo Aluno(a).", x: 92, y: 123, size: 7, color: "#777777", align: "center", maxW: 80 });
   }
+  L({ t: "text", s: "Pinte toda a bolinha com caneta", x: 169, y: 119.5, size: 7, color: "#555555", align: "center" });
+  L({ t: "text", s: "preta ou azul. Uma só por questão.", x: 169, y: 123, size: 7, color: "#555555", align: "center" });
+  if (temCE) L({ t: "text", s: "C = Certo   E = Errado", x: 169, y: 128, size: 7.5, bold: true, color: "#333333", align: "center" });
 
   // Grade de respostas
   const secoes = av.secoes || [];
@@ -474,28 +487,114 @@ async function gerarPDF(folhas, aoProgredir) {
   return doc.output("blob");
 }
 
-/* Word: cada folha vira uma imagem de página inteira, para manter a posição exata das bolinhas */
+/* Word editável: cabeçalho, conteúdo, metodologia, instruções, exemplo e nota viram texto e tabelas do Word.
+   A moldura do gabarito (quadrados, QR, código de barras e bolinhas) entra como imagem presa na posição exata da
+   página, para a leitura pela câmera continuar funcionando mesmo depois de editar o texto. */
+const twip = (mm) => Math.round(mm * 56.6929);
+const emu = (mm) => Math.round(mm * 36000);
+const xmlEsc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+function wRun(texto, o = {}) {
+  return `<w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial" w:cs="Arial"/>${o.b ? "<w:b/>" : ""}<w:color w:val="${o.cor || "222222"}"/><w:sz w:val="${Math.round((o.pt || 9) * 2)}"/></w:rPr><w:t xml:space="preserve">${xmlEsc(texto)}</w:t></w:r>`;
+}
+function wPar(conteudo, o = {}) {
+  return `<w:p><w:pPr>${o.quebra ? "<w:pageBreakBefore/>" : ""}${o.fundo ? `<w:shd w:val="clear" w:color="auto" w:fill="${o.fundo}"/>` : ""}<w:spacing w:before="0" w:after="0" w:line="${twip(o.linha || 4)}" w:lineRule="exact"/>${o.jc ? `<w:jc w:val="${o.jc}"/>` : ""}<w:rPr><w:sz w:val="${Math.round((o.pt || 4) * 2)}"/></w:rPr></w:pPr>${conteudo}</w:p>`;
+}
+const wEspaco = (mm) => wPar("", { linha: mm, pt: 2 });
+function wCelula(larg, conteudo, o = {}) {
+  return `<w:tc><w:tcPr><w:tcW w:w="${twip(larg)}" w:type="dxa"/>${o.fundo ? `<w:shd w:val="clear" w:color="auto" w:fill="${o.fundo}"/>` : ""}<w:vAlign w:val="${o.alinhar || "center"}"/></w:tcPr>${conteudo || wPar("")}</w:tc>`;
+}
+function wTabela(larguras, celulas, alt) {
+  const b = (n) => `<w:${n} w:val="single" w:sz="4" w:space="0" w:color="B8B8B8"/>`;
+  return `<w:tbl><w:tblPr><w:tblW w:w="${twip(larguras.reduce((a, x) => a + x, 0))}" w:type="dxa"/><w:tblLayout w:type="fixed"/><w:tblBorders>${["top", "left", "bottom", "right", "insideH", "insideV"].map(b).join("")}</w:tblBorders><w:tblCellMar><w:top w:w="0" w:type="dxa"/><w:left w:w="85" w:type="dxa"/><w:bottom w:w="0" w:type="dxa"/><w:right w:w="85" w:type="dxa"/></w:tblCellMar></w:tblPr><w:tblGrid>${larguras.map((l) => `<w:gridCol w:w="${twip(l)}"/>`).join("")}</w:tblGrid><w:tr><w:trPr><w:trHeight w:val="${twip(alt)}" w:hRule="exact"/></w:trPr>${celulas.join("")}</w:tr></w:tbl>`;
+}
+const campoW = (rot, valor, o = {}) => wPar(wRun(rot + " ", { b: true, pt: 7.5, cor: "333333" }) + (valor ? wRun(valor, { b: !!o.b, pt: o.pt || 9.5, cor: o.cinza ? "9A9A9A" : "111111" }) : ""), { linha: 4.2 });
+let _idDesenho = 1;
+function wImagem(rid, larg, alt, o = {}) {
+  const id = _idDesenho++;
+  const grafico = `<a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:nvPicPr><pic:cNvPr id="${id}" name="img${id}"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed="${rid}"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${emu(larg)}" cy="${emu(alt)}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic>`;
+  if (!o.ancora) return `<w:r><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0"><wp:extent cx="${emu(larg)}" cy="${emu(alt)}"/><wp:docPr id="${id}" name="img${id}"/>${grafico}</wp:inline></w:drawing></w:r>`;
+  return `<w:r><w:drawing><wp:anchor distT="0" distB="0" distL="0" distR="0" simplePos="0" relativeHeight="${o.atras ? 1 : 251659264 + id}" behindDoc="${o.atras ? 1 : 0}" locked="1" layoutInCell="1" allowOverlap="1"><wp:simplePos x="0" y="0"/><wp:positionH relativeFrom="page"><wp:posOffset>${emu(o.x)}</wp:posOffset></wp:positionH><wp:positionV relativeFrom="page"><wp:posOffset>${emu(o.y)}</wp:posOffset></wp:positionV><wp:extent cx="${emu(larg)}" cy="${emu(alt)}"/><wp:effectExtent l="0" t="0" r="0" b="0"/><wp:wrapNone/><wp:docPr id="${id}" name="img${id}"/><wp:cNvGraphicFramePr/>${grafico}</wp:anchor></w:drawing></w:r>`;
+}
+
 async function gerarDOCX(folhas, aoProgredir) {
-  const s = 6.5; // px por mm (~165 dpi)
+  const s = 8; // px por mm na imagem da moldura (~200 dpi)
+  const [[mx0, my0], , [mx1, my1]] = MARCAS.centros, ml = MARCAS.lado / 2;
+  const M = { x: mx0 - ml - 1, y: my0 - ml - 1, w: mx1 - mx0 + 2 * ml + 2, h: my1 - my0 + 2 * ml + 2 };
   const cv = document.createElement("canvas");
   cv.width = A4.w * s; cv.height = A4.h * s;
   const ctx = cv.getContext("2d");
-  const imgs = await carregarImagens(folhas.flatMap((f) => [f.perfil && f.perfil.logo, f.timbrado && f.timbrado.img]));
+  const corte = document.createElement("canvas");
+  const recortar = (x, y, w, h) => {
+    corte.width = Math.round(w * s); corte.height = Math.round(h * s);
+    corte.getContext("2d").drawImage(cv, Math.round(x * s), Math.round(y * s), corte.width, corte.height, 0, 0, corte.width, corte.height);
+    return new Promise((r) => corte.toBlob(r, "image/png"));
+  };
+  const imgs = await carregarImagens(folhas.flatMap((f) => [f.perfil && f.perfil.logo]));
   const zip = new JSZip();
-  const EMU = 36000;
-  const cx = Math.round(209.5 * EMU), cy = Math.round(296.3 * EMU);
   let corpo = "", rels = "";
+  const rel = (id, alvo) => (rels += `<Relationship Id="${id}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/${alvo}"/>`);
+  // timbrado e logo: um arquivo só para todas as páginas
+  const t0 = folhas[0] && folhas[0].timbrado;
+  if (t0 && t0.img) { zip.file("word/media/timbrado.jpg", t0.img.split(",")[1], { base64: true }); rel("rIdTimb", "timbrado.jpg"); }
+  const logo = folhas[0] && folhas[0].perfil && folhas[0].perfil.logo;
+  const comLogo = logo && !(t0 && t0.img) && imgs[logo];
+  if (comLogo) { zip.file("word/media/logo." + (/png/.test(logo) ? "png" : "jpg"), logo.split(",")[1], { base64: true }); rel("rIdLogo", "logo." + (/png/.test(logo) ? "png" : "jpg")); }
+  let exemploFeito = false;
   for (let i = 0; i < folhas.length; i++) {
-    desenharCanvas(ctx, opsFolha(folhas[i]), s, imgs);
-    const blob = await new Promise((r) => cv.toBlob(r, "image/jpeg", 0.85));
-    zip.file(`word/media/folha${i + 1}.jpg`, blob);
-    rels += `<Relationship Id="rIdF${i + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/folha${i + 1}.jpg"/>`;
-    corpo += `<w:p><w:pPr>${i ? "<w:pageBreakBefore/>" : ""}<w:spacing w:before="0" w:after="0" w:line="240" w:lineRule="auto"/><w:jc w:val="center"/></w:pPr><w:r><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0"><wp:extent cx="${cx}" cy="${cy}"/><wp:docPr id="${i + 1}" name="Folha ${i + 1}"/><a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:nvPicPr><pic:cNvPr id="${i + 1}" name="folha${i + 1}.jpg"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed="rIdF${i + 1}"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${cx}" cy="${cy}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p>`;
+    const d = folhas[i], { av, perfil = {}, turma, aluno } = d;
+    const ver = d.ver || "A", versoes = Math.max(1, +av.versoes || 1);
+    // desenha a página sem timbrado e recorta a moldura (e, uma vez, a linha de exemplo)
+    desenharCanvas(ctx, opsFolha({ ...d, timbrado: null }), s, imgs);
+    zip.file(`word/media/moldura${i + 1}.png`, await recortar(M.x, M.y, M.w, M.h));
+    rel(`rIdM${i + 1}`, `moldura${i + 1}.png`);
+    if (!exemploFeito) { zip.file("word/media/exemplo.png", await recortar(EXEMPLO.x - 0.3, CAB.linha.y + EXEMPLO.dy - 0.3, EXEMPLO.w + 0.6, EXEMPLO.h + 0.6)); rel("rIdEx", "exemplo.png"); exemploFeito = true; }
+
+    let ancoras = "";
+    if (t0 && t0.img) ancoras += t0.modo === "faixa" ? wImagem("rIdTimb", 210, Math.min(17, 210 * 0.08), { ancora: true, atras: true, x: 0, y: 0 }) : wImagem("rIdTimb", 210, 297, { ancora: true, atras: true, x: 0, y: 0 });
+    if (comLogo) { const im = imgs[logo], k = Math.min(39 / im.width, 13 / im.height); ancoras += wImagem("rIdLogo", im.width * k, im.height * k, { ancora: true, x: 199 - im.width * k, y: 19 }); }
+    ancoras += wImagem(`rIdM${i + 1}`, M.w, M.h, { ancora: true, x: M.x, y: M.y });
+
+    const instituicao = (perfil.instituicao != null && perfil.instituicao !== "" ? perfil.instituicao : CABECALHO_PADRAO.instituicao).toUpperCase();
+    corpo += wPar(ancoras + wRun(instituicao, { b: true, pt: 9 }), { quebra: i > 0, linha: 4 });
+    corpo += wPar(wRun((perfil.escola || "").toUpperCase(), { b: true, pt: 9 }), { linha: 4 });
+    corpo += wPar(wRun(("FOLHA DE RESPOSTAS" + (av.titulo ? " · " + av.titulo : "")).toUpperCase(), { b: true, pt: 8.5, cor: "666666" }), { linha: 4.4 });
+    corpo += wEspaco(1.6);
+    const h = CAB.hCampo, turno = av.turno || (turma && turma.turno) || "";
+    corpo += wTabela([160, 28], [wCelula(160, campoW("Aluno(a):", aluno ? aluno.nome : "", { b: true })), wCelula(28, campoW("Nº:", aluno && aluno.num ? String(aluno.num).padStart(2, "0") : "", { b: true }))], h);
+    corpo += wEspaco(1.5);
+    corpo += wTabela([54, 80, 54], [wCelula(54, campoW("Data:", "____/____/" + new Date().getFullYear(), { cinza: true, pt: 8.5 })), wCelula(80, campoW("Disciplina:", av.componente || "")), wCelula(54, campoW("Turma:", turma ? turma.nome : ""))], h);
+    corpo += wEspaco(1.5);
+    corpo += versoes > 1
+      ? wTabela([120, 38, 30], [wCelula(120, campoW("Professor(a):", av.professor || "")), wCelula(38, campoW("Turno:", turno)), wCelula(30, campoW("Versão:", ver, { b: true, pt: 10.5 }))], h)
+      : wTabela([134, 54], [wCelula(134, campoW("Professor(a):", av.professor || "")), wCelula(54, campoW("Turno:", turno))], h);
+    corpo += wEspaco(2);
+    const faixaW = (r1, r2, texto, alt) => wTabela([28, 160], [wCelula(28, wPar(wRun(r1, { b: true, pt: 6.8, cor: "333333" }), { linha: 3 }) + wPar(wRun(r2, { b: true, pt: 6.8, cor: "333333" }), { linha: 3 }), { fundo: "EFEFEF" }), wCelula(160, wPar(wRun(texto || "", { pt: 7.5 }), { linha: 3.3 }))], alt);
+    if (av.transcricao) {
+      const alt = CAB.metodo.y + CAB.metodo.h - CAB.conteudo.y;
+      corpo += wTabela([44, 144], [wCelula(44, wPar(wRun((av.transcricaoTexto || "ATENÇÃO: TRANSCREVA AQUI, COM A SUA CALIGRAFIA USUAL, A FRASE APRESENTADA NA CAPA DO SEU CADERNO DE QUESTÕES.").toUpperCase(), { b: true, pt: 6 }), { linha: 2.6 })), wCelula(144, "")], alt);
+    } else {
+      corpo += faixaW("Conteúdo", "vivenciado", av.conteudo, CAB.conteudo.h);
+      corpo += wEspaco(CAB.metodo.y - CAB.conteudo.y - CAB.conteudo.h);
+      corpo += faixaW("Metodologia", "aplicada", av.metodologia, CAB.metodo.h);
+    }
+    corpo += wEspaco(CAB.linha.y - CAB.metodo.y - CAB.metodo.h);
+    const instr = instrucoesQueCabem(av, 100, CAB.linha.h);
+    const titulo = (t) => wPar(wRun(t, { b: true, pt: 7, cor: "333333" }), { linha: 4.6, fundo: "EFEFEF" });
+    const temCE = (av.secoes || []).some((x) => String(x.tipo) === "C");
+    const valor = valorProva(av);
+    corpo += wTabela([104, 50, 34], [
+      wCelula(104, titulo("INSTRUÇÕES:") + instr.brutas.map((ln) => wPar(wRun(ln, { pt: instr.tam }), { linha: instr.passo })).join(""), { alinhar: "top" }),
+      wCelula(50, titulo("EXEMPLO:") + wPar(wRun("Preencha a bolinha por completo:", { pt: 6.5 }), { linha: 4.4 }) + wPar(wImagem("rIdEx", EXEMPLO.w + 0.6, EXEMPLO.h + 0.6), { linha: 8.4, jc: "center" }) + (temCE ? wPar(wRun("C = Certo   E = Errado", { b: true, pt: 6.5, cor: "333333" }), { linha: 4, jc: "center" }) : ""), { alinhar: "top" }),
+      wCelula(34, wPar(wRun("DESEMPENHO POR NOTA", { b: true, pt: 6, cor: "333333" }), { linha: 4.6, fundo: "EFEFEF" }) + wPar("", { linha: 12.5 }) + (valor ? wPar(wRun("Valor: " + valor.toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 2 }), { pt: 6.5, cor: "777777" }), { linha: 3.5, jc: "center" }) : ""), { alinhar: "top" }),
+    ], CAB.linha.h);
+    corpo += wEspaco(1);
     if (aoProgredir) aoProgredir(i + 1, folhas.length);
+    if (i % 4 === 3) await new Promise((r) => setTimeout(r));
   }
-  zip.file("[Content_Types].xml", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Default Extension="jpg" ContentType="image/jpeg"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>`);
+  const NS = `xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"`;
+  zip.file("[Content_Types].xml", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Default Extension="jpg" ContentType="image/jpeg"/><Default Extension="png" ContentType="image/png"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>`);
   zip.file("_rels/.rels", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>`);
   zip.file("word/_rels/document.xml.rels", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${rels}</Relationships>`);
-  zip.file("word/document.xml", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"><w:body>${corpo}<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="0" w:right="0" w:bottom="0" w:left="0" w:header="0" w:footer="0" w:gutter="0"/></w:sectPr></w:body></w:document>`);
+  zip.file("word/document.xml", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document ${NS}><w:body>${corpo}<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="${twip(19)}" w:right="${twip(11)}" w:bottom="${twip(10)}" w:left="${twip(11)}" w:header="0" w:footer="0" w:gutter="0"/></w:sectPr></w:body></w:document>`);
   return zip.generateAsync({ type: "blob", mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" });
 }

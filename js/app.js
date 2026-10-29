@@ -351,6 +351,7 @@ function telaFolhas() {
         </div>
         ${ts.length > 1 && !neutra ? `<div class="acoes"><button class="btn pri" data-acao="gerar" data-fmt="pdf" data-turma="*">PDF de todas as turmas</button></div>` : ""}
         <div id="progGerar" hidden><div class="progresso"><i></i></div><small class="muted"></small></div>
+        <small class="muted">No Word, o cabeçalho, o conteúdo, a metodologia e as instruções podem ser editados. Só não mexa na área do gabarito (dentro dos quadrados pretos).</small>
         ${+av.versoes > 1 ? `<div class="aviso info">Esta prova tem ${av.versoes} versões (${VERSOES.slice(0, av.versoes).split("").join(", ")}). As folhas saem alternando as versões, e a versão vai no QR code de cada folha.</div>` : ""}
         ${gabCompleto(av) ? "" : `<div class="aviso">O gabarito ainda está incompleto. Você pode imprimir as folhas agora e completar o gabarito antes de corrigir.</div>`}
       </div>
