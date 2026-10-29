@@ -29,6 +29,7 @@ function reduzir(g, w, h, maxLado) {
   return { g: out, w: W, h: H, k };
 }
 
+const DIR8 = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, -1], [1, -1], [-1, 1]];
 /* Encontra os 4 quadrados dos cantos. Devolve os centros na ordem horária a partir do mais acima-à-esquerda. */
 function acharMarcas(g, w, h) {
   const W1 = w + 1, I = new Float64Array(W1 * (h + 1));
@@ -57,10 +58,13 @@ function acharMarcas(g, w, h) {
     id++;
     let sp = 0; pilha[sp++] = i; lab[i] = id;
     let area = 0, sx = 0, sy = 0, minx = w, maxx = 0, miny = h, maxy = 0;
+    // pontos extremos em 8 direções: num quadrado (girado ou não) alguns deles caem perto dos cantos
+    const ext = new Float64Array(8).fill(-Infinity), extP = new Int32Array(8);
     while (sp) {
       const p = pilha[--sp], x = p % w, y = (p - x) / w;
       area++; sx += x; sy += y;
       if (x < minx) minx = x; if (x > maxx) maxx = x; if (y < miny) miny = y; if (y > maxy) maxy = y;
+      for (let d = 0; d < 8; d++) { const v = x * DIR8[d][0] + y * DIR8[d][1]; if (v > ext[d]) { ext[d] = v; extP[d] = p; } }
       if (x > 0 && bin[p - 1] && !lab[p - 1]) { lab[p - 1] = id; pilha[sp++] = p - 1; }
       if (x < w - 1 && bin[p + 1] && !lab[p + 1]) { lab[p + 1] = id; pilha[sp++] = p + 1; }
       if (y > 0 && bin[p - w] && !lab[p - w]) { lab[p - w] = id; pilha[sp++] = p - w; }
@@ -70,12 +74,22 @@ function acharMarcas(g, w, h) {
     if (bw < 6 || bh < 6) continue;
     const ar = bw / bh;
     if (ar < 0.5 || ar > 2) continue;
-    if (area / (bw * bh) < 0.5) continue;
+    const cheio = area / (bw * bh);
+    if (cheio < 0.5) continue;
     if (bw > w * 0.2 || bh > h * 0.2) continue;
-    cands.push({ x: sx / area, y: sy / area, area });
+    // "quadradice": (distância do centro ao ponto mais afastado)² / área. Quadrado: ~0,5; círculo (bolinha pintada): ~0,32
+    const cx = sx / area, cy = sy / area;
+    let d2 = 0;
+    for (let d = 0; d < 8; d++) { const px = extP[d] % w, py = (extP[d] - px) / w; d2 = Math.max(d2, (px + 0.5 - cx - 0.5) ** 2 + (py + 0.5 - cy - 0.5) ** 2); }
+    const quina = d2 / area;
+    if (quina < 0.38) continue;
+    cands.push({ x: cx, y: cy, area, cheio, quina });
   }
   cands.sort((a, b) => b.area - a.area);
   const top = cands.slice(0, 12);
+  // candidatos mais "quadrados pretos" para mostrar na câmera mesmo quando ainda faltam cantos
+  const solidos = cands;
+  acharMarcas.ultimos = solidos.filter((c) => c.area >= (solidos[0] ? solidos[0].area : 0) * 0.55).slice(0, 4);
   let melhor = null, melhorScore = 0;
   const n = top.length;
   for (let a = 0; a < n; a++) for (let b = a + 1; b < n; b++) for (let c = b + 1; c < n; c++) for (let d = c + 1; d < n; d++) {
@@ -85,10 +99,13 @@ function acharMarcas(g, w, h) {
     const ord = ordenarHorario(q);
     if (!convexo(ord)) continue;
     const aq = areaPoligono(ord);
-    if (aq < w * h * 0.12) continue;
+    if (aq < w * h * 0.05) continue;
     // lados opostos com tamanhos parecidos (folha retangular, perspectiva moderada)
     const L = [0, 1, 2, 3].map((i) => dist(ord[i], ord[(i + 1) % 4]));
     if (Math.min(L[0], L[2]) / Math.max(L[0], L[2]) < 0.6 || Math.min(L[1], L[3]) / Math.max(L[1], L[3]) < 0.6) continue;
+    // o tamanho dos quadrados tem de combinar com o tamanho da moldura que eles formam
+    const ladoEsperado2 = (aq / ((MARCAS.centros[1][0] - MARCAS.centros[0][0]) * (MARCAS.centros[2][1] - MARCAS.centros[1][1]))) * MARCAS.lado * MARCAS.lado;
+    if (mn < ladoEsperado2 * 0.3 || mx > ladoEsperado2 * 3) continue;
     const score = aq * Math.sqrt(mn / mx);
     if (score > melhorScore) { melhorScore = score; melhor = ord; }
   }
@@ -163,7 +180,7 @@ function amostrador(g, w, h, H) {
 
 /* Recorta a região do QR já "endireitada" e tenta decodificar */
 function lerQRRetificado(g, w, h, H) {
-  const s = 10, x0 = 157, y0 = 3.5, lado = 34, n = lado * s;
+  const s = 10, x0 = QR.x - 3, y0 = QR.y - 3, lado = QR.lado + 6, n = lado * s;
   const amostra = amostrador(g, w, h, H);
   const rgba = new Uint8ClampedArray(n * n * 4);
   for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
@@ -231,7 +248,7 @@ function lerBolinhas(amostra, geo) {
   }
   // grade do Nº de chamada
   let numero = null;
-  if (geo.numY != null) {
+  if (geo.num) {
     const dig = [];
     for (let lin = 0; lin < 2; lin++) {
       const brancos = [];
@@ -248,18 +265,26 @@ function lerBolinhas(amostra, geo) {
   return { resp, fills, numero };
 }
 
-/* Entrada: um canvas (foto ou quadro de vídeo). Saída: { codigo, info, resp, fills, H, previa } */
-function lerFolha(canvas, opcoes = {}) {
+/* Entrada: um canvas (foto ou quadro de vídeo). Saída: { codigo, info, resp, fills, numero, H, geo, pts }.
+   Em caso de erro, ErroLeitura traz .marcas (quadrados encontrados, em pixels do canvas) para a câmera mostrar. */
+function lerFolha(canvas) {
   const w = canvas.width, h = canvas.height;
   const ctx = canvas.getContext("2d", { willReadFrequently: true });
   const rgba = ctx.getImageData(0, 0, w, h).data;
   const g = cinza(rgba, w, h);
   const red = reduzir(g, w, h, 900);
   const marcas = acharMarcas(red.g, red.w, red.h);
-  if (!marcas) throw new ErroLeitura("cantos", "Não encontrei os 4 quadrados pretos dos cantos. Fotografe a folha inteira, de cima, com boa luz.");
-  const pts = marcas.map((p) => ({ x: (p.x + 0.5) / red.k - 0.5, y: (p.y + 0.5) / red.k - 0.5 }));
+  const paraCanvas = (p) => ({ x: (p.x + 0.5) / red.k - 0.5, y: (p.y + 0.5) / red.k - 0.5 });
+  const vistos = (acharMarcas.ultimos || []).map(paraCanvas);
+  const erro = (codigo, msg, pts) => { const e = new ErroLeitura(codigo, msg); e.marcas = pts || vistos; return e; };
+  if (!marcas) {
+    const antigo = jsQR(rgba, w, h, { inversionAttempts: "dontInvert" });
+    if (antigo && ehCodigoAntigo(antigo.data)) throw erro("antiga", "Esta folha foi impressa no modelo antigo. Gere e imprima as folhas de novo na aba Folhas.");
+    throw erro("cantos", "Não encontrei os 4 quadrados pretos em volta do gabarito. Enquadre o gabarito inteiro, de cima, com boa luz.");
+  }
+  const pts = marcas.map(paraCanvas);
 
-  // tenta as 4 orientações; a certa é a que tem o QR code no canto superior direito
+  // tenta as 4 orientações; a certa é a que tem o QR code junto ao quadrado superior esquerdo
   let codigo = null, H = null;
   for (const k of [0, 1, 3, 2]) {
     const dst = [0, 1, 2, 3].map((i) => pts[(i + k) % 4]);
@@ -270,17 +295,18 @@ function lerFolha(canvas, opcoes = {}) {
   }
   if (!codigo) {
     const r = jsQR(rgba, w, h, { inversionAttempts: "dontInvert" });
+    if (r && ehCodigoAntigo(r.data)) throw erro("antiga", "Esta folha foi impressa no modelo antigo. Gere e imprima as folhas de novo na aba Folhas.", pts);
     if (r && lerCodigoQR(r.data)) {
       codigo = r.data;
       const c = r.location;
       const qc = { x: (c.topLeftCorner.x + c.bottomRightCorner.x) / 2, y: (c.topLeftCorner.y + c.bottomRightCorner.y) / 2 };
       let j = 0, best = Infinity;
       pts.forEach((p, i) => { const d = dist(p, qc); if (d < best) { best = d; j = i; } });
-      const k = (j + 3) % 4; // o canto mais perto do QR é o superior direito
-      H = homografia(MARCAS.centros, [0, 1, 2, 3].map((i) => pts[(i + k) % 4]));
+      // o quadrado mais perto do QR é o superior esquerdo
+      H = homografia(MARCAS.centros, [0, 1, 2, 3].map((i) => pts[(i + j) % 4]));
     }
   }
-  if (!codigo) throw new ErroLeitura("qr", "Achei a folha, mas não consegui ler o QR code. Aproxime um pouco o celular e evite sombra ou reflexo sobre o código.");
+  if (!codigo) throw erro("qr", "Achei os 4 quadrados, mas não consegui ler o QR code. Aproxime um pouco o celular e evite sombra ou reflexo.", pts);
   const info = lerCodigoQR(codigo);
   const geo = geometria(info.L);
   const amostra = amostrador(g, w, h, H);
