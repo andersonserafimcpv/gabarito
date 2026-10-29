@@ -217,6 +217,20 @@ td.resp { font-family: var(--f-mono); font-size: .82rem; color: var(--muted); }
 .progresso i { display: block; height: 100%; background: var(--accent); width: 0; transition: width .2s; }
 
 /* Painel lateral */
+.ampliada { position: fixed; inset: 0; z-index: 60; background: rgba(10, 14, 24, .92); display: flex; flex-direction: column; }
+.ampliada[hidden] { display: none; }
+.ampliada-cab { display: flex; gap: 8px; align-items: center; padding: 10px 14px; color: #fff; }
+.ampliada-cab h2 { margin: 0 auto 0 0; font-size: 1rem; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ampliada-legenda { display: flex; flex-wrap: wrap; gap: 6px 14px; padding: 0 14px 8px; color: #dfe4ee; font-size: .8rem; }
+.ampliada-legenda i { display: inline-block; width: 12px; height: 12px; border-radius: 50%; border: 2.5px solid; margin-right: 5px; vertical-align: -2px; }
+.ampliada .zoom { flex: 1; overflow: auto; padding: 0 14px 14px; cursor: zoom-in; -webkit-overflow-scrolling: touch; }
+.ampliada .zoom img { display: block; max-width: 100%; max-height: 100%; margin: 0 auto; border-radius: 6px; background: #fff; }
+.ampliada .zoom.grande { cursor: zoom-out; }
+.ampliada .zoom.grande img { max-width: none; max-height: none; width: 220%; }
+@media (min-width: 900px) { .ampliada .zoom.grande img { width: 160%; } }
+.ver-folha { position: relative; padding: 0; border: 0; background: none; cursor: zoom-in; display: block; }
+.ver-folha img { display: block; }
+.ver-folha span { position: absolute; right: 6px; bottom: 6px; background: rgba(0,0,0,.65); color: #fff; font-size: .75rem; font-weight: 700; border-radius: 999px; padding: 3px 9px; }
 .painel-fundo { position: fixed; inset: 0; background: rgba(10, 14, 24, .45); z-index: 40; display: flex; justify-content: flex-end; }
 .painel { background: var(--bg); width: min(720px, 100%); height: 100%; overflow-y: auto; box-shadow: -10px 0 40px rgba(0,0,0,.2); display: flex; flex-direction: column; }
 .painel-cab { position: sticky; top: 0; background: var(--surface); border-bottom: 1px solid var(--line); padding: calc(12px + env(safe-area-inset-top, 0px)) max(16px, env(safe-area-inset-right, 0px)) 12px 20px; display: flex; gap: 10px; align-items: center; z-index: 2; }
@@ -246,6 +260,11 @@ td.resp { font-family: var(--f-mono); font-size: .82rem; color: var(--muted); }
 <div class="faixa-local" id="faixaLocal" hidden><div class="wrap">Modo demonstração: os dados ficam só neste aparelho. Configure o Firebase para usar login e sincronizar na nuvem.</div></div>
 <main class="wrap" id="main"></main>
 <div class="painel-fundo" id="painelFundo" hidden><aside class="painel" id="painel" role="dialog" aria-modal="true"></aside></div>
+<div class="ampliada" id="ampliada" role="dialog" aria-modal="true" aria-label="Folha corrigida" hidden>
+  <div class="ampliada-cab"><h2>Folha corrigida</h2><button class="btn peq" data-acao="zoom-ampliada">Aproximar / afastar</button><button class="btn peq" data-acao="fechar-ampliada">Fechar</button></div>
+  <div class="ampliada-legenda"><span><i style="border-color:#16a34a"></i>marcou certo</span><span><i style="border-color:#dc2626"></i>marcou errado</span><span><i style="border-color:#16a34a;border-style:dashed"></i>resposta certa</span><span><i style="border-color:#e08a00"></i>mais de uma marcação</span></div>
+  <div class="zoom" data-acao="zoom-ampliada"><img alt="Folha corrigida ampliada"></div>
+</div>
 <div class="toast" id="toast" role="status" hidden></div>
 <input type="file" id="arqAtas" accept=".docx,.pdf,.xlsx,.xls,.csv,.txt" multiple hidden>
 <input type="file" id="arqFotos" accept="image/*" capture="environment" hidden>

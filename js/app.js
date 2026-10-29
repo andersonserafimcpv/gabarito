@@ -391,7 +391,7 @@ function cartaoLeitura(l) {
   const brancos = (r.respostas.match(/-/g) || []).length, duplas = (r.respostas.match(/\*/g) || []).length;
   const titulo = r.alunoId ? `${esc(r.nome)}` : `Folha neutra${r.seq ? " nº " + r.seq : ""}${r.nome ? " · " + esc(r.nome) : ""}`;
   return `<div class="bloco"><div class="leitura">
-    <img src="${l.previa}" alt="Folha lida">
+    <button type="button" class="ver-folha" data-acao="ver-folha" data-res="${r.id}" title="Ampliar a folha corrigida"><img src="${l.previa}" alt="Folha lida (toque para ampliar)"><span>Ampliar</span></button>
     <div style="display:grid;gap:10px;min-width:0;align-content:start">
       <div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:flex-start">
         <div style="min-width:0"><h3>${titulo}</h3><small class="muted">${esc(av.titulo)} · ${esc(turma ? turma.nome : "sem turma")}${r.ra ? " · R.A. " + esc(r.ra) : ""}</small></div>
@@ -728,7 +728,7 @@ function painelAvaliacao(av0) {
         <label class="campo"><span>Professor(a)</span><input type="text" id="avProf" value="${esc(av.professor)}" placeholder="Nome que sai no cabeçalho"></label>
         <label class="campo"><span>Turno <small>(opcional)</small></span><input type="text" id="avTurno" value="${esc(av.turno)}" placeholder="Ex.: Manhã"></label>
         <label class="campo" style="grid-column:1/-1"><span>Conteúdo vivenciado <small>(opcional; em branco fica o espaço para escrever)</small></span><input type="text" id="avConteudo" value="${esc(av.conteudo)}" placeholder="Ex.: Sistema solar; movimentos da Terra"></label>
-        <label class="campo" style="grid-column:1/-1"><span>Metodologia aplicada <small>(opcional)</small></span><textarea id="avMetodo" rows="2" placeholder="Ex.: Prova objetiva individual, sem consulta.">${esc(av.metodologia)}</textarea></label>
+        <label class="campo" style="grid-column:1/-1"><span>Metodologia aplicada <small>(já vem preenchida; pode mudar)</small></span><textarea id="avMetodo" rows="2">${esc(metodologiaDe(av))}</textarea></label>
       </div>
       <fieldset style="border:0;padding:0;margin:0;display:grid;gap:8px"><legend class="campo" style="margin-bottom:6px;font-weight:700;color:var(--muted);font-size:.9rem">Tipo de folha</legend>
         <div class="opcoes-tipo">
@@ -885,6 +885,7 @@ function painelResultado(avId, turmaId, alunoId, resId) {
     <div class="painel-corpo">
       <p class="muted" style="margin:0">${esc(av.titulo)} · ${esc(turma ? turma.nome : "sem turma")}${r.lidoEm ? " · lida em " + dataCurta(r.lidoEm) : novo ? " · ainda não lida: lance as respostas à mão se precisar" : ""}${r.origem === "manual" && !novo ? " · lançada/ajustada à mão" : ""}</p>
       <div class="resumo"><div><b id="resNota">${fmt(c.nota)}</b><span>nota (de ${fmt(c.total)})</span></div><div><b id="resAc">${c.ac}/${c.tot}</b><span>certas</span></div><div><b id="resEr">${c.er}</b><span>erradas</span></div></div>
+      ${r.imagem ? `<button type="button" class="btn" data-acao="ver-folha" data-res="${r.id}" style="justify-self:start">Ver folha corrigida</button>` : ""}
       ${+av.versoes > 1 ? `<label class="campo" style="max-width:220px"><span>Versão da prova</span><select data-muda="ver-painel">${VERSOES.slice(0, av.versoes).split("").map((v) => `<option value="${v}" ${(r.versao || "A") === v ? "selected" : ""}>Versão ${v}</option>`).join("")}</select></label>` : ""}
       ${!r.alunoId ? `<label class="campo"><span>Nome <small>(opcional)</small></span><input type="text" id="resNome" value="${esc(r.nome || "")}"></label>` : ""}
       <div id="resGrade">${gradeRespostas(av, r).replaceAll('data-muda="resp"', 'data-muda="resp-painel"')}</div>
@@ -908,6 +909,8 @@ async function processarCanvas(canvas, arquivo) {
   const turma = info.turmaId ? S.turmas[info.turmaId] : null;
   const versao = info.ver || "A";
   const previa = previaLeitura(canvas, L, gabDe(av, versao), 360).toDataURL("image/jpeg", 0.72);
+  let imagem = "";
+  try { imagem = imagemCorrigida(canvas, L, gabDe(av, versao)); } catch (e) { /* sem imagem ampliada */ }
   const n = totalQ(av);
   const respostas = (L.resp + "-".repeat(n)).slice(0, Math.max(n, L.resp.length));
   let res, substituiu = false, aviso = "";
@@ -923,10 +926,10 @@ async function processarCanvas(canvas, arquivo) {
     const aluno = turma && (turma.alunos || []).find((a) => a.id === alunoId);
     const id = `${av.id}__${info.turmaId}__${alunoId}`;
     substituiu = !!S.resultados[id];
-    res = { id, avaliacaoId: av.id, turmaId: info.turmaId, alunoId, nome: aluno ? aluno.nome : "(aluno removido da turma)", ra: aluno ? aluno.ra : "", num: aluno ? aluno.num : null, respostas, versao, lidoEm: agora(), origem: "leitura", tipo: info.alunoId ? "nominal" : "neutra-numero" };
+    res = { id, avaliacaoId: av.id, turmaId: info.turmaId, alunoId, nome: aluno ? aluno.nome : "(aluno removido da turma)", ra: aluno ? aluno.ra : "", num: aluno ? aluno.num : null, respostas, versao, imagem, lidoEm: agora(), origem: "leitura", tipo: info.alunoId ? "nominal" : "neutra-numero" };
   } else {
     const seq = resultadosDe(av.id).filter((r) => !r.alunoId && r.turmaId === info.turmaId).reduce((m, r) => Math.max(m, r.seq || 0), 0) + 1;
-    res = { id: `${av.id}__n__${novoId()}`, avaliacaoId: av.id, turmaId: info.turmaId, alunoId: null, nome: "", seq, respostas, versao, lidoEm: agora(), origem: "leitura", tipo: "neutra" };
+    res = { id: `${av.id}__n__${novoId()}`, avaliacaoId: av.id, turmaId: info.turmaId, alunoId: null, nome: "", seq, respostas, versao, imagem, lidoEm: agora(), origem: "leitura", tipo: "neutra" };
     if (L.numero != null) res.numLido = L.numero;
   }
   await Nuvem.put("resultados", res.id, res);
@@ -1250,6 +1253,20 @@ const acoes = {
   "tirar-logo": () => Nuvem.salvarPerfil({ logo: "" }),
   "salvar-perfil": () => { Nuvem.salvarPerfil({ instituicao: $("#pfInst").value.trim(), escola: $("#pfEscola").value.trim() }); toast("Dados da escola salvos."); },
   "add-timbrado": () => $("#arqTimbrado").click(),
+  "ver-folha": (el) => {
+    const r = S.resultados[el.dataset.res] || (ui.leituras.find((l) => l.resId === el.dataset.res) || {}).res;
+    const l = ui.leituras.find((x) => x.resId === el.dataset.res);
+    const src = (r && r.imagem) || (l && l.previa);
+    if (!src) { toast("Esta leitura não tem imagem guardada."); return; }
+    const caixa = $("#ampliada");
+    caixa.querySelector("img").src = src;
+    caixa.querySelector(".zoom").classList.remove("grande");
+    caixa.querySelector("h2").textContent = r ? (r.alunoId ? r.nome : "Folha neutra" + (r.seq ? " nº " + r.seq : "")) : "Folha corrigida";
+    caixa.hidden = false;
+    document.body.style.overflow = "hidden";
+  },
+  "fechar-ampliada": () => { $("#ampliada").hidden = true; document.body.style.overflow = painelAtual ? "hidden" : ""; },
+  "zoom-ampliada": () => $("#ampliada .zoom").classList.toggle("grande"),
   "salvar-timbrado": () => {
     const { timbrado, av } = painelAtual;
     const id = novoId();
@@ -1275,7 +1292,11 @@ document.addEventListener("click", (e) => {
   if (el && acoes[el.dataset.acao]) { e.preventDefault(); acoes[el.dataset.acao](el); return; }
   if (e.target.id === "painelFundo") fecharPainel();
 });
-document.addEventListener("keydown", (e) => { if (e.key === "Escape" && painelAtual) fecharPainel(); });
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Escape") return;
+  if (!$("#ampliada").hidden) acoes["fechar-ampliada"]();
+  else if (painelAtual) fecharPainel();
+});
 
 document.addEventListener("change", (e) => {
   const el = e.target, m = el.dataset.muda;

@@ -322,7 +322,8 @@ function previaLeitura(canvas, leitura, gabarito, largura = 520) {
   const ctx = cv.getContext("2d");
   ctx.drawImage(canvas, 0, 0, cv.width, cv.height);
   const { H, geo, resp } = leitura;
-  ctx.lineWidth = 2;
+  const esp = Math.max(1, largura / 600);
+  ctx.lineWidth = 2 * esp;
   ctx.strokeStyle = "#2f6fed";
   ctx.beginPath();
   MARCAS.centros.forEach(([X, Y], i) => { const [x, y] = H(X, Y); i ? ctx.lineTo(x * k, y * k) : ctx.moveTo(x * k, y * k); });
@@ -339,14 +340,28 @@ function previaLeitura(canvas, leitura, gabarito, largura = 520) {
       const [X, Y] = geo.pos(q, a);
       const [x, y] = H(X, Y);
       const [x2] = H(X + geo.r, Y);
-      const rad = Math.max(3, Math.abs(x2 - x) * k + 1.5);
+      const rad = Math.max(3 * esp, Math.abs(x2 - x) * k + 1.5 * esp);
       ctx.beginPath(); ctx.arc(x * k, y * k, rad, 0, Math.PI * 2);
-      if (marcada) { ctx.strokeStyle = r === "*" ? "#e08a00" : correta || !gab || gab === "X" ? "#16a34a" : "#dc2626"; ctx.lineWidth = 2.5; }
-      else { ctx.strokeStyle = "rgba(22,163,74,.6)"; ctx.lineWidth = 1.2; ctx.setLineDash([3, 2]); }
+      if (marcada) { ctx.strokeStyle = r === "*" ? "#e08a00" : correta || !gab || gab === "X" ? "#16a34a" : "#dc2626"; ctx.lineWidth = 2.5 * esp; }
+      else { ctx.strokeStyle = "rgba(22,163,74,.6)"; ctx.lineWidth = 1.2 * esp; ctx.setLineDash([3 * esp, 2 * esp]); }
       ctx.stroke(); ctx.setLineDash([]);
     }
   }
   return cv;
+}
+
+/* Imagem da folha corrigida para conferir depois: recorta a região do gabarito (com folga) e reduz */
+function imagemCorrigida(canvas, leitura, gabarito, largMax = 900) {
+  const cheia = previaLeitura(canvas, leitura, gabarito, canvas.width);
+  const xs = leitura.pts.map((p) => p.x), ys = leitura.pts.map((p) => p.y);
+  const fx = (Math.max(...xs) - Math.min(...xs)) * 0.05, fy = (Math.max(...ys) - Math.min(...ys)) * 0.05;
+  const x0 = Math.max(0, Math.min(...xs) - fx), y0 = Math.max(0, Math.min(...ys) - fy);
+  const x1 = Math.min(canvas.width, Math.max(...xs) + fx), y1 = Math.min(canvas.height, Math.max(...ys) + fy);
+  const k = Math.min(1, largMax / (x1 - x0));
+  const cv = document.createElement("canvas");
+  cv.width = Math.round((x1 - x0) * k); cv.height = Math.round((y1 - y0) * k);
+  cv.getContext("2d").drawImage(cheia, x0, y0, x1 - x0, y1 - y0, 0, 0, cv.width, cv.height);
+  return cv.toDataURL("image/jpeg", 0.62);
 }
 
 function arquivoParaCanvas(file, maxLado = 2200) {
