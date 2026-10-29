@@ -176,14 +176,32 @@ td.resp { font-family: var(--f-mono); font-size: .82rem; color: var(--muted); }
 @media (max-width: 560px) { .leitura { grid-template-columns: 96px minmax(0, 1fr); } .leitura img { width: 96px; } }
 .camera { position: relative; background: #000; border-radius: var(--r); overflow: hidden; max-width: 560px; margin: 0 auto; width: 100%; }
 .camera video { width: 100%; display: block; max-height: 70vh; object-fit: contain; }
-.camera .guias { position: absolute; left: 50%; top: 47%; transform: translate(-50%, -50%); height: 84%; max-width: 92%; aspect-ratio: 210 / 297; pointer-events: none; }
-.camera .guias i { position: absolute; width: 13%; aspect-ratio: 1; border: 3px solid rgba(255,255,255,.85); box-shadow: 0 0 0 1px rgba(0,0,0,.35); }
-.camera .guias i:nth-child(1) { left: 0; top: 0; border-right: 0; border-bottom: 0; border-top-left-radius: 6px; }
-.camera .guias i:nth-child(2) { right: 0; top: 0; border-left: 0; border-bottom: 0; border-top-right-radius: 6px; }
-.camera .guias i:nth-child(3) { left: 0; bottom: 0; border-right: 0; border-top: 0; border-bottom-left-radius: 6px; }
-.camera .guias i:nth-child(4) { right: 0; bottom: 0; border-left: 0; border-top: 0; border-bottom-right-radius: 6px; }
-.camera .guias.ok i { border-color: #4cc38a; }
-.camera .status { position: absolute; left: 0; right: 0; bottom: 0; padding: 10px 14px; background: rgba(0,0,0,.6); color: #fff; font-size: .95rem; }
+.camera .mira { position: absolute; pointer-events: none; }
+.camera .mira i { position: absolute; width: 16%; aspect-ratio: 1; border: 3px solid rgba(255,255,255,.9); box-shadow: 0 0 0 1px rgba(0,0,0,.35); transition: border-color .15s; }
+.camera .mira i:nth-child(1) { left: 0; top: 0; border-right: 0; border-bottom: 0; border-top-left-radius: 6px; }
+.camera .mira i:nth-child(2) { right: 0; top: 0; border-left: 0; border-bottom: 0; border-top-right-radius: 6px; }
+.camera .mira i:nth-child(3) { right: 0; bottom: 0; border-left: 0; border-top: 0; border-bottom-right-radius: 6px; }
+.camera .mira i:nth-child(4) { left: 0; bottom: 0; border-right: 0; border-top: 0; border-bottom-left-radius: 6px; }
+.camera .mira i.ok { border-color: #4cc38a; }
+.camera .mira .rotulo { position: absolute; left: 50%; top: 0; transform: translate(-50%, -130%); color: #fff; font-size: .8rem; font-weight: 700; background: rgba(0,0,0,.55); padding: 2px 8px; border-radius: 999px; white-space: nowrap; }
+.camera .ponto { position: absolute; width: 26px; height: 26px; margin: -13px 0 0 -13px; border-radius: 50%; border: 4px solid #f5c542; box-shadow: 0 0 0 2px rgba(0,0,0,.45), 0 0 14px 2px #f5c542; pointer-events: none; animation: piscar .55s steps(2, jump-none) infinite; }
+.camera .ponto.ok { border-color: #4cc38a; box-shadow: 0 0 0 2px rgba(0,0,0,.45), 0 0 16px 4px #4cc38a; }
+.camera .ponto.lido { animation: none; background: rgba(76,195,138,.45); }
+@keyframes piscar { 0% { opacity: 1; } 100% { opacity: .15; } }
+@media (prefers-reduced-motion: reduce) { .camera .ponto { animation: none; } }
+.camera .contador { background: #111; color: #fff; padding: 8px 14px 0; font-size: .85rem; font-weight: 700; display: flex; gap: 6px; align-items: center; }
+.camera .contador b { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: rgba(255,255,255,.3); }
+.camera .contador b.on { background: #4cc38a; box-shadow: 0 0 6px #4cc38a; }
+.timbrados-sel { display: flex; flex-wrap: wrap; gap: 8px; }
+.timb-op { display: flex; align-items: center; gap: 8px; border: 1.5px solid var(--line); background: var(--surface); color: var(--ink); border-radius: 10px; padding: 6px 10px 6px 6px; font: inherit; font-weight: 600; cursor: pointer; min-height: 44px; }
+.timb-op img, .timb-op .sem { width: 30px; height: 42px; object-fit: cover; border: 1px solid var(--line); border-radius: 3px; background: #fff; flex: none; }
+.timb-op .sem { display: grid; place-items: center; font-size: .7rem; color: var(--muted); }
+.timb-op[aria-checked="true"] { border-color: var(--accent); background: var(--accent-soft); box-shadow: 0 0 0 1px var(--accent); }
+.timb-op.add { border-style: dashed; color: var(--accent); padding-left: 12px; }
+.lista-timb { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
+.timb-card { border: 1px solid var(--line); border-radius: 10px; padding: 10px; display: grid; gap: 8px; background: var(--surface); }
+.timb-card img { width: 100%; aspect-ratio: 210 / 297; object-fit: contain; background: #fff; border: 1px solid var(--line); border-radius: 4px; }
+.camera .status { padding: 10px 14px; background: #111; color: #fff; font-size: .95rem; min-height: 3.2em; }
 .camera .fechar { position: absolute; top: 10px; right: 10px; }
 .grandes { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
 .grande { display: flex; gap: 14px; align-items: center; text-align: left; padding: 18px; border-radius: var(--r); border: 1px solid var(--line); background: var(--surface); cursor: pointer; font: inherit; color: inherit; }
@@ -233,6 +251,7 @@ td.resp { font-family: var(--f-mono); font-size: .82rem; color: var(--muted); }
 <input type="file" id="arqFotos" accept="image/*" capture="environment" hidden>
 <input type="file" id="arqGaleria" accept="image/*" multiple hidden>
 <input type="file" id="arqLogo" accept="image/*" hidden>
+<input type="file" id="arqTimbrado" accept="image/*,.docx,.pdf" hidden>
 
 <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>

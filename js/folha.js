@@ -2,8 +2,11 @@
    Todas as medidas em milímetros numa folha A4 em pé (210 x 297). */
 
 const A4 = { w: 210, h: 297 };
-// Quadrados pretos dos cantos (centros), na ordem TL, TR, BR, BL
-const MARCAS = { lado: 9, centros: [[12, 12], [198, 12], [198, 285], [12, 285]] };
+/* Quadrados pretos (centros), na ordem TL, TR, BR, BL. Ficam só em volta da área do gabarito:
+   o celular pode chegar mais perto e a leitura fica mais nítida. */
+const MARCAS = { lado: 8, centros: [[15, 106], [195, 106], [195, 262], [15, 262]] };
+// QR code dentro da moldura, junto ao quadrado superior esquerdo
+const QR = { x: 23, y: 103.5, lado: 24 };
 const LETRAS = "ABCDE";
 const VERSOES = "ABCD";
 // Tipos de questão: número de alternativas (2 a 5) ou C = Certo/Errado
@@ -28,7 +31,8 @@ function parseLayout(s) {
   return { secs, trans: f.includes("t"), num: f.includes("n") };
 }
 
-/* Geometria da folha a partir do layout */
+/* Geometria das questões dentro da moldura (em mm na folha), a partir do layout */
+const GRADE = { top: 139, bottom: 259, x0: 21, x1: 189, pitchMin: 4.8, pxMin: 4.3 };
 function geometria(L) {
   const secs = L.secs, multi = secs.length > 1;
   const slots = [], qSec = [];
@@ -38,25 +42,20 @@ function geometria(L) {
     for (let i = 0; i < s.n; i++) { slots.push({ q, si }); qSec.push(si); q++; }
   });
   const nQ = q;
-  const compacta = slots.length > 128;           // muitas questões: sem o quadro de instruções
-  let y = 92;
-  const transY = L.trans ? y : null; if (L.trans) y += 21;
-  const numY = L.num ? y : null; if (L.num) y += 19;
-  const instrY = compacta ? null : y; if (!compacta) y += 26;
-  const top = y + 13, bottom = 272;
+  const larg = GRADE.x1 - GRADE.x0, top = GRADE.top, bottom = GRADE.bottom;
   const maxAlt = Math.max(...secs.map((s) => letrasTipo(s.t).length));
-  const lab = nQ >= 100 ? 9.5 : 8.5, gap = 5;
-  const maxCols = Math.max(1, Math.floor((174 + gap) / (lab + maxAlt * 5 + gap)));
+  const lab = nQ >= 100 ? 9.5 : 8.5, gap = 3.5;
+  const maxCols = Math.max(1, Math.floor((larg + gap) / (lab + maxAlt * GRADE.pxMin + gap)));
   let cols = Math.min(maxCols, Math.max(1, Math.ceil(slots.length / 16)));
   let rows, pitch;
   for (;;) {
     rows = Math.ceil(slots.length / cols);
     pitch = rows > 1 ? Math.min(7.6, (bottom - top) / (rows - 1)) : 7.6;
-    if (pitch >= 5.2 || cols >= maxCols) break;
+    if (pitch >= 5.4 || cols >= maxCols) break;
     cols++;
   }
-  const gapC = cols <= 2 ? 14 : gap;
-  const px = Math.min(6.6, ((174 + gapC) / cols - lab - gapC) / maxAlt);
+  const gapC = cols <= 2 ? 14 : cols <= 4 ? 6 : gap;
+  const px = Math.min(6.6, ((larg + gapC) / cols - lab - gapC) / maxAlt);
   const r = Math.min(2.4, pitch * 0.36, px * 0.38);
   const colW = lab + maxAlt * px + gapC;
   const x0 = 105 - (cols * colW - gapC) / 2;
@@ -64,25 +63,29 @@ function geometria(L) {
   slots.forEach((s, k) => { if (s.q != null) slotDe[s.q] = k; });
   const xy = (k) => [x0 + Math.floor(k / rows) * colW, top + (k % rows) * pitch];
   return {
-    L, slots, nQ, qSec, compacta, transY, numY, instrY, top, cols, rows, pitch, px, r, colW, x0, lab, gapC,
+    L, slots, nQ, qSec, top, cols, rows, pitch, px, r, colW, x0, lab, gapC,
+    cabe: pitch >= GRADE.pitchMin - 1e-9 && px >= GRADE.pxMin - 1e-9,
+    num: !!L.num,
     letras: (q) => letrasTipo(secs[qSec[q]].t),
     xy,
     pos(q, a) { const [x, yy] = xy(slotDe[q]); return [x + lab + (a + 0.5) * px, yy]; },
-    numPos(lin, d) { return [72 + d * 7.2, numY + 6 + lin * 6.2]; },
+    numPos(lin, d) { return [120 + d * 7.2, 113 + lin * 8]; },
   };
 }
 
-/* Conteúdo do QR: GB3|avaliação|turma|aluno|versão|layout */
+/* Conteúdo do QR: GB4|avaliação|turma|aluno|versão|layout (GB4 = folha com a moldura em volta do gabarito) */
 function codigoQR(av, turmaId, alunoId, ver) {
-  return ["GB3", av.id, turmaId || "-", alunoId || "-", ver || "A", layoutStr(layoutDe(av))].join("|");
+  return ["GB4", av.id, turmaId || "-", alunoId || "-", ver || "A", layoutStr(layoutDe(av))].join("|");
 }
 function lerCodigoQR(txt) {
   const p = String(txt || "").split("|");
-  if (p[0] !== "GB3" || p.length < 6) return null;
+  if (p[0] !== "GB4" || p.length < 6) return null;
   const L = parseLayout(p[5]);
   if (!L) return null;
   return { avId: p[1], turmaId: p[2] === "-" ? null : p[2], alunoId: p[3] === "-" ? null : p[3], ver: p[4] || "A", L };
 }
+/* Folha impressa na versão anterior (quadrados nos cantos da página) */
+const ehCodigoAntigo = (txt) => /^GB3\|/.test(String(txt || ""));
 
 /* ---------- Código de barras Code 128 ---------- */
 const C128 = [11011001100, 11001101100, 11001100110, 10010011000, 10010001100, 10001001100, 10011001000, 10011000100, 10001100100, 11001001000, 11001000100, 11000100100, 10110011100, 10011011100, 10011001110, 10111001100, 10011101100, 10011100110, 11001110010, 11001011100, 11001001110, 11011100100, 11001110100, 11101101110, 11101001100, 11100101100, 11100100110, 11101100100, 11100110100, 11100110010, 11011011000, 11011000110, 11000110110, 10100011000, 10001011000, 10001000110, 10110001000, 10001101000, 10001100010, 11010001000, 11000101000, 11000100010, 10110111000, 10110001110, 10001101110, 10111011000, 10111000110, 10001110110, 11101110110, 11010001110, 11000101110, 11011101000, 11011100010, 11011101110, 11101011000, 11101000110, 11100010110, 11101101000, 11101100010, 11100011010, 11101111010, 11001000010, 11110001010, 10100110000, 10100001100, 10010110000, 10010000110, 10000101100, 10000100110, 10110010000, 10110000100, 10011010000, 10011000010, 10000110100, 10000110010, 11000010010, 11001010000, 11110111010, 11000010100, 10001111010, 10100111100, 10010111100, 10010011110, 10111100100, 10011110100, 10011110010, 11110100100, 11110010100, 11110010010, 11011011110, 11011110110, 11110110110, 10101111000, 10100011110, 10001011110, 10111101000, 10111100010, 11110101000, 11110100010, 10111011110, 10111101110, 11101011110, 11110101110, 11010000100, 11010010000, 11010011100, 1100011101011];
@@ -117,117 +120,163 @@ function qrMatriz(texto) {
 }
 
 const INSTRUCOES_PADRAO = [
-  "1. Não será permitido substituir a folha de respostas;",
-  "2. Esta folha deverá, obrigatoriamente, ser devolvida ao aplicador;",
-  "3. Não amasse, dobre ou rasure esta folha;",
-  "4. Utilize caneta de tinta azul ou preta;",
-  "5. Assinale apenas uma alternativa para cada questão; mais de uma marcação anulará a resposta.",
+  "1. Preencha os dados do cabeçalho a caneta;",
+  "2. As questões devem ser preenchidas com respostas a caneta preta ou azul;",
+  "3. Não serão aceitas questões rasuradas;",
+  "4. Não utilizar o aparelho celular no momento da avaliação;",
+  "5. Só serão consideradas as respostas preenchidas abaixo, no gabarito;",
+  "6. Assinale apenas uma alternativa para cada questão; mais de uma marcação anulará a resposta;",
+  "7. Não amasse, dobre ou rasure esta folha.",
 ];
+const CABECALHO_PADRAO = { instituicao: "SERVIÇO SOCIAL DA INDÚSTRIA - SESI – DR PERNAMBUCO" };
+
+/* Valor total da prova (soma dos pontos de cada questão) */
+function valorProva(av) {
+  let q = 0, total = 0;
+  for (const s of av.secoes || []) for (let i = 0; i < +s.n; i++, q++) {
+    const p = av.pontoPorQuestao && av.pontos && av.pontos[q] != null && av.pontos[q] !== "" ? +av.pontos[q] : +s.certo || 0;
+    total += p;
+  }
+  return Math.round(total * 100) / 100;
+}
 
 /* Monta a lista de operações de desenho de uma folha.
-   d = { av, perfil, turma, aluno (ou null para folha neutra), ver } */
+   d = { av, perfil, turma, aluno (ou null para folha neutra), ver, timbrado ({ img, modo } ou null) } */
 function opsFolha(d) {
-  const { av, perfil = {}, turma, aluno } = d;
+  const { av, perfil = {}, turma, aluno, timbrado } = d;
   const ver = d.ver || "A";
   const g = geometria(layoutDe(av));
   const ops = [];
-  const cinzaBorda = "#9a9a9a", cinzaFundo = "#efefef", tinta = "#111111";
+  const cinzaBorda = "#9a9a9a", cinzaFundo = "#efefef", tinta = "#111111", borda = "#b8b8b8";
   const L = (o) => ops.push(o);
   const versoes = Math.max(1, +av.versoes || 1);
+  const X0 = 11, LARG = 188;
 
-  for (const [x, y] of MARCAS.centros) L({ t: "rect", x: x - MARCAS.lado / 2, y: y - MARCAS.lado / 2, w: MARCAS.lado, h: MARCAS.lado, fill: "#000000" });
-
-  // Código de barras (folha nominal) e QR code
-  if (aluno) {
-    const cod = String(aluno.ra || aluno.id);
-    const bars = code128(cod);
-    const mod = Math.min(0.42, 46 / bars.length);
-    const bw = bars.length * mod;
-    L({ t: "bars", bars, x: 105 - bw / 2, y: 8, h: 13, mod });
-    L({ t: "text", s: cod.split("").join(" "), x: 105, y: 25.5, size: 10, align: "center", font: "courier" });
+  // Papel timbrado ao fundo (página inteira ou faixa no topo)
+  if (timbrado && timbrado.img) {
+    if (timbrado.modo === "faixa") L({ t: "img", src: timbrado.img, x: 0, y: 0, w: 210, h: 17, fit: "topo" });
+    else L({ t: "img", src: timbrado.img, x: 0, y: 0, w: 210, h: 297, fit: "fill" });
   }
-  L({ t: "qr", s: codigoQR(av, turma && turma.id, aluno && aluno.id, ver), x: 161, y: 7.5, size: 26 });
 
-  // Títulos
-  L({ t: "text", s: ("FOLHA DE RESPOSTAS" + (av.titulo ? " | " + av.titulo : "")).toUpperCase(), x: 18, y: 38, size: 17, bold: true, color: "#555555", maxW: 132 });
-  if (av.componente) L({ t: "text", s: av.componente.toUpperCase(), x: 18, y: 45.5, size: 14, bold: true, color: tinta, maxW: 120 });
-  const etapa = etapaDaTurma(turma);
-  const sub = [etapa.toUpperCase(), (av.subtitulo || "").toUpperCase()].filter(Boolean).join(" - ");
-  if (sub) L({ t: "text", s: sub, x: 18, y: 51, size: 10, color: "#333333", maxW: 125 });
-  if (perfil.logo) L({ t: "img", src: perfil.logo, x: 150, y: 37, w: 42, h: 16 });
-
-  // Campos
-  const campo = (x, y, w, h, rot, valor, tam, negrito) => {
-    L({ t: "rrect", x, y, w, h, stroke: "#b8b8b8", lw: 0.25, rx: 1.2 });
+  const campo = (x, y, w, h, rot, valor, tam, negrito, cinzaValor) => {
+    L({ t: "rect", x, y, w, h, fill: "#ffffff" });
+    L({ t: "rrect", x, y, w, h, stroke: borda, lw: 0.25, rx: 1.2 });
     L({ t: "text", s: rot, x: x + 1.8, y: y + h / 2 + 1.1, size: 7.5, bold: true, color: "#333333" });
-    if (valor) L({ t: "text", s: valor, x: x + 1.8 + largTexto(rot, 7.5, true) + 1.5, y: y + h / 2 + 1.3, size: tam || 10, bold: !!negrito, color: tinta, maxW: w - largTexto(rot, 7.5, true) - 5 });
+    if (valor) L({ t: "text", s: valor, x: x + 1.8 + largTexto(rot, 7.5, true) + 1.5, y: y + h / 2 + 1.3, size: tam || 9.5, bold: !!negrito, color: cinzaValor ? "#9a9a9a" : tinta, maxW: w - largTexto(rot, 7.5, true) - 5 });
   };
-  campo(18, 55, 100, 7, "Município:", perfil.municipio);
-  campo(120, 55, 36, 7, "Regional:", perfil.regional);
-  campo(158, 55, 34, 7, "Turno:", av.turno || (turma && turma.turno) || "");
-  campo(18, 64, 174, 7, "Escola:", perfil.escola);
+  const caixa = (x, y, w, h, titulo) => {
+    L({ t: "rect", x, y, w, h, fill: "#ffffff" });
+    L({ t: "rrect", x, y, w, h, stroke: borda, lw: 0.25, rx: 1.2 });
+    if (titulo) {
+      L({ t: "rect", x: x + 0.15, y: y + 0.15, w: w - 0.3, h: 4.8, fill: cinzaFundo });
+      L({ t: "text", s: titulo, x: x + 1.8, y: y + 3.6, size: 7, bold: true, color: "#333333", maxW: w - 3.5 });
+    }
+  };
+
+  // Cabeçalho: instituição, escola e título
+  const instituicao = (perfil.instituicao != null && perfil.instituicao !== "" ? perfil.instituicao : CABECALHO_PADRAO.instituicao).toUpperCase();
+  const comLogo = perfil.logo && !(timbrado && timbrado.img);
+  const largTit = comLogo ? 146 : LARG;
+  L({ t: "text", s: instituicao, x: X0, y: 22.6, size: 9, bold: true, color: "#222222", maxW: largTit });
+  if (perfil.escola) L({ t: "text", s: perfil.escola.toUpperCase(), x: X0, y: 26.6, size: 9, bold: true, color: "#222222", maxW: largTit });
+  L({ t: "text", s: ("FOLHA DE RESPOSTAS" + (av.titulo ? " · " + av.titulo : "")).toUpperCase(), x: X0, y: 30.8, size: 8.5, bold: true, color: "#666666", maxW: largTit });
+  if (comLogo) L({ t: "img", src: perfil.logo, x: 160, y: 19, w: 39, h: 13 });
+
+  campo(X0, 33, 158, 6.8, "Aluno(a):", aluno ? aluno.nome : "", 9.5, true);
+  campo(171, 33, 28, 6.8, "Nº:", aluno && aluno.num ? String(aluno.num).padStart(2, "0") : "", 9.5, true);
+  campo(X0, 41.3, 52, 6.8, "Data:", "______/______/" + new Date().getFullYear(), 8.5, false, true);
+  campo(65, 41.3, 78, 6.8, "Disciplina:", av.componente || "");
+  campo(145, 41.3, 54, 6.8, "Turma:", turma ? turma.nome : "");
+  const turno = av.turno || (turma && turma.turno) || "";
   if (versoes > 1) {
-    campo(18, 73, 52, 7, "Etapa Escolar:", etapa);
-    campo(72, 73, 24, 7, "Versão:", ver, 11, true);
-    campo(98, 73, 94, 7, "Turma:", turma ? turma.nome : "");
+    campo(X0, 49.6, 118, 6.8, "Professor(a):", av.professor || "");
+    campo(131, 49.6, 36, 6.8, "Turno:", turno);
+    campo(169, 49.6, 30, 6.8, "Versão:", ver, 10.5, true);
   } else {
-    campo(18, 73, 70, 7, "Etapa Escolar:", etapa);
-    campo(90, 73, 102, 7, "Turma:", turma ? turma.nome : "");
-  }
-  campo(18, 82, 152, 7, "Estudante:", aluno ? aluno.nome : "", 10.5);
-  campo(172, 82, 20, 7, "Nº:", aluno && aluno.num ? String(aluno.num).padStart(2, "0") : "");
-
-  // Caixa de transcrição (opcional)
-  if (g.transY != null) {
-    const y = g.transY;
-    L({ t: "rrect", x: 18, y, w: 174, h: 18, stroke: "#b8b8b8", lw: 0.25, rx: 1.2 });
-    L({ t: "line", x1: 62, y1: y, x2: 62, y2: y + 18, color: "#b8b8b8", w: 0.25 });
-    const linhas = quebrarTexto((av.transcricaoTexto || "ATENÇÃO: TRANSCREVA AQUI, COM A SUA CALIGRAFIA USUAL, A FRASE APRESENTADA NA CAPA DO SEU CADERNO DE QUESTÕES.").toUpperCase(), 6.2, 41, true);
-    linhas.slice(0, 6).forEach((ln, i) => L({ t: "text", s: ln, x: 20, y: y + 3.6 + i * 2.6, size: 6.2, bold: true, color: "#222222" }));
+    campo(X0, 49.6, 132, 6.8, "Professor(a):", av.professor || "");
+    campo(145, 49.6, 54, 6.8, "Turno:", turno);
   }
 
-  // Grade do Nº de chamada (folha neutra)
-  if (g.numY != null) {
-    const y = g.numY;
-    L({ t: "rrect", x: 18, y, w: 174, h: 16, stroke: "#b8b8b8", lw: 0.25, rx: 1.2 });
-    L({ t: "text", s: "Nº DE CHAMADA", x: 20, y: y + 5.2, size: 8, bold: true, color: "#333333" });
-    L({ t: "text", s: "Pinte os dois dígitos", x: 20, y: y + 9, size: 6.5, color: "#555555" });
-    L({ t: "text", s: "(ex.: 07 = 0 e 7)", x: 20, y: y + 12, size: 6.5, color: "#555555" });
-    ["Dezena", "Unidade"].forEach((rot, lin) => {
+  // Conteúdo vivenciado (ou quadro de transcrição) e linha de instruções / metodologia / nota
+  let yLinha;
+  if (g.L.trans) {
+    const y = 58.6, h = 14;
+    caixa(X0, y, LARG, h);
+    L({ t: "line", x1: 58, y1: y, x2: 58, y2: y + h, color: borda, w: 0.25 });
+    const linhas = quebrarTexto((av.transcricaoTexto || "ATENÇÃO: TRANSCREVA AQUI, COM A SUA CALIGRAFIA USUAL, A FRASE APRESENTADA NA CAPA DO SEU CADERNO DE QUESTÕES.").toUpperCase(), 5.8, 44, true);
+    linhas.slice(0, 5).forEach((ln, i) => L({ t: "text", s: ln, x: X0 + 1.8, y: y + 3.4 + i * 2.45, size: 5.8, bold: true, color: "#222222" }));
+    yLinha = y + h + 1.6;
+  } else {
+    const y = 58.6, h = 9;
+    caixa(X0, y, LARG, h);
+    L({ t: "rect", x: X0 + 0.15, y: y + 0.15, w: 27.7, h: h - 0.3, fill: cinzaFundo });
+    L({ t: "line", x1: X0 + 28, y1: y, x2: X0 + 28, y2: y + h, color: borda, w: 0.25 });
+    L({ t: "text", s: "Conteúdo", x: X0 + 1.8, y: y + 3.8, size: 7, bold: true, color: "#333333" });
+    L({ t: "text", s: "vivenciado", x: X0 + 1.8, y: y + 7, size: 7, bold: true, color: "#333333" });
+    if (av.conteudo) quebrarTexto(av.conteudo, 7.5, LARG - 32).slice(0, 2).forEach((ln, i, arr) => L({ t: "text", s: ln, x: X0 + 30.5, y: y + (arr.length > 1 ? 3.7 + i * 3.3 : 5.6), size: 7.5, color: tinta }));
+    yLinha = y + h + 1.9;
+  }
+  const hLinha = 101 - yLinha;
+  caixa(X0, yLinha, 100, hLinha, "INSTRUÇÕES:");
+  // maior fonte em que todas as instruções cabem no quadro
+  const brutas = av.instrucoes && av.instrucoes.trim() ? av.instrucoes.split("\n").filter((x) => x.trim()) : INSTRUCOES_PADRAO;
+  let tamI = 5.4, instr = [];
+  for (const t of [7.4, 7, 6.6, 6.2, 5.8, 5.4]) {
+    instr = brutas.flatMap((ln) => quebrarTexto(ln, t, 96));
+    tamI = t;
+    if (6.4 + (instr.length - 1) * t * 0.42 <= hLinha - 1.5) break;
+  }
+  const passoI = tamI * 0.42;
+  const cabemI = Math.floor((hLinha - 7.9) / passoI) + 1;
+  instr.slice(0, cabemI).forEach((ln, i) => L({ t: "text", s: ln, x: X0 + 1.8, y: yLinha + 7.6 + i * passoI, size: tamI, color: "#222222" }));
+  caixa(113, yLinha, 51, hLinha, "METODOLOGIA APLICADA:");
+  if (av.metodologia) quebrarTexto(av.metodologia, 6.5, 47).slice(0, Math.floor((hLinha - 6.4) / 2.6) + 1).forEach((ln, i) => L({ t: "text", s: ln, x: 114.8, y: yLinha + 7.6 + i * 2.6, size: 6.5, color: "#222222" }));
+  caixa(166, yLinha, 33, hLinha, "DESEMPENHO POR NOTA");
+  const valor = valorProva(av);
+  if (valor) L({ t: "text", s: "Valor: " + valor.toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 2 }), x: 182.5, y: yLinha + hLinha - 2, size: 6.5, color: "#777777", align: "center" });
+
+  // Moldura do gabarito: fundo branco (cobre o timbrado), borda leve e os 4 quadrados
+  const [[mx0, my0], , [mx1, my1]] = MARCAS.centros, ml = MARCAS.lado / 2;
+  L({ t: "rect", x: mx0 - ml - 1, y: my0 - ml - 1, w: mx1 - mx0 + 2 * ml + 2, h: my1 - my0 + 2 * ml + 2, fill: "#ffffff" });
+  L({ t: "rrect", x: mx0 - ml, y: my0 - ml, w: mx1 - mx0 + 2 * ml, h: my1 - my0 + 2 * ml, stroke: "#c8c8c8", lw: 0.3, rx: 1.5 });
+  for (const [x, y] of MARCAS.centros) L({ t: "rect", x: x - ml, y: y - ml, w: MARCAS.lado, h: MARCAS.lado, fill: "#000000" });
+
+  // Faixa superior da moldura: QR code, exemplo e código de barras ou grade do Nº de chamada
+  L({ t: "qr", s: codigoQR(av, turma && turma.id, aluno && aluno.id, ver), x: QR.x, y: QR.y, size: QR.lado });
+  const temCE = (av.secoes || []).some((s) => String(s.tipo) === "C");
+  const ey = 104, eh = 23;
+  caixa(51, ey, 47, eh, "EXEMPLO:");
+  L({ t: "text", s: "Preencha a bolinha por completo:", x: 52.8, y: ey + 8.6, size: 6.5, color: "#222222" });
+  L({ t: "rrect", x: 55, y: ey + 10.6, w: 39, h: 7, stroke: borda, lw: 0.2, rx: 1 });
+  L({ t: "text", s: "00", x: 57, y: ey + 14.1, size: 7.5, color: "#333333", mid: true });
+  for (let a = 0; a < 4; a++) {
+    const cx = 65 + a * 7.4, cy = ey + 14.1;
+    if (a === 1) L({ t: "circle", x: cx, y: cy, r: 2.4, fill: "#111111" });
+    else { L({ t: "circle", x: cx, y: cy, r: 2.4, stroke: cinzaBorda, lw: 0.25 }); L({ t: "text", s: LETRAS[a], x: cx, y: cy + 0.1, size: 6, color: "#9a9a9a", align: "center", mid: true }); }
+  }
+  if (temCE) L({ t: "text", s: "C = Certo   E = Errado", x: 74.5, y: ey + 21.3, size: 6.5, bold: true, color: "#333333", align: "center" });
+
+  if (g.num) {
+    caixa(101, ey, 89, eh);
+    L({ t: "text", s: "Nº DE CHAMADA", x: 102.8, y: ey + 4, size: 6.5, bold: true, color: "#333333" });
+    ["Dez.", "Unid."].forEach((rot, lin) => {
       const [, cy] = g.numPos(lin, 0);
-      L({ t: "text", s: rot, x: 66, y: cy + 0.1, size: 7, color: "#444444", align: "right", mid: true });
+      L({ t: "text", s: rot, x: 115.6, y: cy + 0.1, size: 6.5, color: "#444444", align: "right", mid: true });
       for (let dg = 0; dg < 10; dg++) {
         const [cx] = g.numPos(lin, dg);
         L({ t: "circle", x: cx, y: cy, r: 2.3, stroke: cinzaBorda, lw: 0.25 });
         L({ t: "text", s: String(dg), x: cx, y: cy + 0.1, size: 6, color: "#a5a5a5", align: "center", mid: true });
       }
     });
-    L({ t: "rect", x: 146, y: y + 3, w: 16, h: 10, fill: "#ffffff" });
-    L({ t: "rrect", x: 146, y: y + 3, w: 16, h: 10, stroke: "#b8b8b8", lw: 0.25, rx: 1 });
-    L({ t: "text", s: "escreva", x: 154, y: y + 15, size: 5.5, color: "#888888", align: "center" });
-  }
-
-  // Instruções e exemplo
-  if (g.instrY != null) {
-    const T = g.instrY;
-    L({ t: "rrect", x: 18, y: T, w: 112, h: 24, stroke: "#b8b8b8", lw: 0.25, rx: 1.2 });
-    L({ t: "rect", x: 18.15, y: T + 0.15, w: 111.7, h: 5, fill: cinzaFundo });
-    L({ t: "text", s: "Instruções:", x: 20, y: T + 3.7, size: 8, bold: true, color: "#333333" });
-    const instr = (av.instrucoes && av.instrucoes.trim() ? av.instrucoes.split("\n") : INSTRUCOES_PADRAO).flatMap((ln) => quebrarTexto(ln, 6.8, 106));
-    instr.slice(0, 7).forEach((ln, i) => L({ t: "text", s: ln, x: 20, y: T + 8.3 + i * 2.55, size: 6.8, color: "#222222" }));
-    L({ t: "rrect", x: 133, y: T, w: 59, h: 24, stroke: "#b8b8b8", lw: 0.25, rx: 1.2 });
-    L({ t: "rect", x: 133.15, y: T + 0.15, w: 58.7, h: 5, fill: cinzaFundo });
-    L({ t: "text", s: "Exemplo:", x: 135, y: T + 3.7, size: 8, bold: true, color: "#333333" });
-    L({ t: "text", s: "Preencha a bolinha por completo:", x: 135, y: T + 9.5, size: 7, color: "#222222" });
-    L({ t: "rrect", x: 141, y: T + 12.5, w: 43, h: 8, stroke: "#b8b8b8", lw: 0.2, rx: 1 });
-    L({ t: "text", s: "00", x: 143, y: T + 16.5, size: 8, color: "#333333", mid: true });
-    for (let a = 0; a < 4; a++) {
-      const cx = 152 + a * 8, cy = T + 16.5;
-      if (a === 1) L({ t: "circle", x: cx, y: cy, r: 2.6, fill: "#111111" });
-      else { L({ t: "circle", x: cx, y: cy, r: 2.6, stroke: cinzaBorda, lw: 0.25 }); L({ t: "text", s: LETRAS[a], x: cx, y: cy + 0.1, size: 6.5, color: "#9a9a9a", align: "center", mid: true }); }
-    }
+  } else if (aluno) {
+    const cod = String(aluno.ra || aluno.id);
+    const bars = code128(cod);
+    const mod = Math.min(0.4, 56 / bars.length);
+    const bw = bars.length * mod;
+    L({ t: "bars", bars, x: 146 - bw / 2, y: 105.5, h: 13.5, mod });
+    L({ t: "text", s: cod.split("").join(" "), x: 146, y: 123.5, size: 9, align: "center", font: "courier" });
   } else {
-    L({ t: "text", s: "Use caneta azul ou preta e pinte toda a bolinha. Marque uma só opção por questão; mais de uma marcação anula a questão.", x: 105, y: g.top - g.pitch / 2 - 8.5, size: 7, color: "#333333", align: "center", maxW: 172 });
+    L({ t: "text", s: "Folha neutra: escreva seu nome no campo Aluno(a).", x: 146, y: 116, size: 7, color: "#777777", align: "center", maxW: 86 });
   }
 
   // Grade de respostas
@@ -237,8 +286,8 @@ function opsFolha(d) {
     const xc = g.x0 + c * g.colW - 1.5, wc = g.colW - g.gapC + 3;
     const nLin = Math.min(g.rows, g.slots.length - c * g.rows);
     if (nLin <= 0) continue;
-    L({ t: "rect", x: xc, y: g.top - g.pitch / 2 - 6, w: wc, h: 5.4, fill: cinzaFundo });
-    L({ t: "text", s: wc > 30 ? "Questão | Resposta" : "Q | Resp.", x: xc + wc / 2, y: g.top - g.pitch / 2 - 3.3, size: Math.min(8, wc * 0.24), color: "#555555", align: "center", mid: true });
+    L({ t: "rect", x: xc, y: g.top - g.pitch / 2 - 5.6, w: wc, h: 5, fill: cinzaFundo });
+    L({ t: "text", s: wc > 30 ? "Questão | Resposta" : "Q | Resp.", x: xc + wc / 2, y: g.top - g.pitch / 2 - 3.1, size: Math.min(7.5, wc * 0.24), color: "#555555", align: "center", mid: true });
     for (let row = 0; row < nLin; row++) {
       const k = c * g.rows + row, sl = g.slots[k];
       const [, cy] = g.xy(k);
@@ -260,9 +309,6 @@ function opsFolha(d) {
       }
     }
   }
-
-  const temCE = secoes.some((s) => String(s.tipo) === "C");
-  L({ t: "text", s: (aluno ? "Folha nominal · não troque com colegas" : "Folha neutra · escreva seu nome no campo Estudante") + (temCE ? " · C = Certo, E = Errado" : ""), x: 105, y: 286, size: 6.5, color: "#888888", align: "center" });
   return ops;
 }
 
@@ -327,9 +373,8 @@ function desenharPDF(doc, ops, imgs) {
       case "img": {
         const im = imgs && imgs[o.src];
         if (!im) break;
-        const k = Math.min(o.w / im.width, o.h / im.height);
-        const w = im.width * k, h = im.height * k;
-        try { doc.addImage(o.src, o.x + o.w - w, o.y + (o.h - h) / 2, w, h); } catch (e) { /* logo inválida: ignora */ }
+        const [x, y, w, h] = caixaImagem(o, im);
+        try { doc.addImage(o.src, /^data:image\/png/i.test(o.src) ? "PNG" : "JPEG", x, y, w, h, apelidoImagem(o.src), "FAST"); } catch (e) { /* imagem inválida: ignora */ }
         break;
       }
     }
@@ -374,14 +419,28 @@ function desenharCanvas(ctx, ops, s, imgs) {
       case "img": {
         const im = imgs && imgs[o.src];
         if (!im) break;
-        const k = Math.min(o.w / im.width, o.h / im.height);
-        const w = im.width * k, h = im.height * k;
-        ctx.drawImage(im, (o.x + o.w - w) * s, (o.y + (o.h - h) / 2) * s, w * s, h * s);
+        const [x, y, w, h] = caixaImagem(o, im);
+        ctx.drawImage(im, x * s, y * s, w * s, h * s);
         break;
       }
     }
   }
   ctx.restore();
+}
+
+/* Posição da imagem: "fill" ocupa a caixa toda; "topo" encaixa pela largura no alto; padrão: cabe na caixa, alinhada à direita */
+function caixaImagem(o, im) {
+  if (o.fit === "fill") return [o.x, o.y, o.w, o.h];
+  if (o.fit === "topo") { const h = Math.min(o.h, (o.w * im.height) / im.width); return [o.x, o.y, (h * im.width) / im.height, h]; }
+  const k = Math.min(o.w / im.width, o.h / im.height);
+  const w = im.width * k, h = im.height * k;
+  return [o.x + o.w - w, o.y + (o.h - h) / 2, w, h];
+}
+/* Mesmo apelido para a mesma imagem: o PDF guarda o timbrado uma vez só, mesmo com muitas páginas */
+const _apelidos = new Map();
+function apelidoImagem(src) {
+  if (!_apelidos.has(src)) _apelidos.set(src, "img" + _apelidos.size);
+  return _apelidos.get(src);
 }
 
 function carregarImagens(srcs) {
@@ -395,17 +454,17 @@ function carregarImagens(srcs) {
 }
 
 /* Lista de folhas a gerar. Com mais de uma versão, as versões se alternam (A, B, A, B…) pela ordem da chamada */
-function folhasPara(av, turma, perfil, copiasNeutras) {
+function folhasPara(av, turma, perfil, copiasNeutras, timbrado) {
   const nv = Math.max(1, +av.versoes || 1);
   const ver = (i) => VERSOES[i % nv];
-  if (av.tipo === "neutra") return Array.from({ length: Math.max(1, copiasNeutras || 1) }, (_, i) => ({ av, perfil, turma, aluno: null, ver: ver(i) }));
-  return (turma ? turma.alunos : []).map((aluno, i) => ({ av, perfil, turma, aluno, ver: ver(i) }));
+  if (av.tipo === "neutra") return Array.from({ length: Math.max(1, copiasNeutras || 1) }, (_, i) => ({ av, perfil, turma, aluno: null, ver: ver(i), timbrado }));
+  return (turma ? turma.alunos : []).map((aluno, i) => ({ av, perfil, turma, aluno, ver: ver(i), timbrado }));
 }
 
 async function gerarPDF(folhas, aoProgredir) {
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ unit: "mm", format: "a4", compress: true });
-  const imgs = await carregarImagens(folhas.map((f) => f.perfil && f.perfil.logo));
+  const imgs = await carregarImagens(folhas.flatMap((f) => [f.perfil && f.perfil.logo, f.timbrado && f.timbrado.img]));
   for (let i = 0; i < folhas.length; i++) {
     if (i) doc.addPage();
     desenharPDF(doc, opsFolha(folhas[i]), imgs);
@@ -421,7 +480,7 @@ async function gerarDOCX(folhas, aoProgredir) {
   const cv = document.createElement("canvas");
   cv.width = A4.w * s; cv.height = A4.h * s;
   const ctx = cv.getContext("2d");
-  const imgs = await carregarImagens(folhas.map((f) => f.perfil && f.perfil.logo));
+  const imgs = await carregarImagens(folhas.flatMap((f) => [f.perfil && f.perfil.logo, f.timbrado && f.timbrado.img]));
   const zip = new JSZip();
   const EMU = 36000;
   const cx = Math.round(209.5 * EMU), cy = Math.round(296.3 * EMU);

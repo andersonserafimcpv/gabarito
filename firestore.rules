@@ -8,13 +8,14 @@ service cloud.firestore {
       allow read, write: if logado() && request.auth.uid == uid;
     }
 
-    // Turmas, avaliações e notas: cada professor só vê e altera o que é dele
+    // Turmas, avaliações, notas e timbrados (todas as coleções gab_…):
+    // cada professor só vê e altera o que é dele
     match /{col}/{id} {
-      allow read, delete: if logado() && col in ['gab_turmas', 'gab_avaliacoes', 'gab_resultados']
+      allow read, delete: if logado() && col.matches('gab_.*') && col != 'gab_perfis'
                           && resource.data.dono == request.auth.uid;
-      allow create: if logado() && col in ['gab_turmas', 'gab_avaliacoes', 'gab_resultados']
+      allow create: if logado() && col.matches('gab_.*') && col != 'gab_perfis'
                     && request.resource.data.dono == request.auth.uid;
-      allow update: if logado() && col in ['gab_turmas', 'gab_avaliacoes', 'gab_resultados']
+      allow update: if logado() && col.matches('gab_.*') && col != 'gab_perfis'
                     && resource.data.dono == request.auth.uid
                     && request.resource.data.dono == request.auth.uid;
     }

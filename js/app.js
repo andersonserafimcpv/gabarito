@@ -7,7 +7,7 @@ const fmt = (n) => (Math.round(n * 100) / 100).toLocaleString("pt-BR", { maximum
 const agora = () => new Date().toISOString();
 const dataCurta = (iso) => (iso ? new Date(iso).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "");
 
-const S = { turmas: {}, avaliacoes: {}, resultados: {}, perfil: {} };
+const S = { turmas: {}, avaliacoes: {}, resultados: {}, timbrados: {}, perfil: {} };
 const ui = { aba: "turmas", avSel: null, turmaFiltro: "", leituras: [], carregando: true, camera: null };
 const ABAS = [
   ["turmas", "Turmas"],
@@ -19,7 +19,7 @@ const ABAS = [
 ];
 
 /* ===================== Armazenamento ===================== */
-const KINDS = ["turmas", "avaliacoes", "resultados"];
+const KINDS = ["turmas", "avaliacoes", "resultados", "timbrados"];
 /* Na nuvem, as coleções ficam com o prefixo gab_ para não se misturar com outros dados do mesmo projeto Firebase */
 const COL = (k) => (window.GABARITO_PREFIXO ?? "gab_") + k;
 const Nuvem = {
@@ -61,7 +61,11 @@ const Nuvem = {
           snap.forEach((d) => (m[d.id] = { ...d.data(), id: d.id }));
           S[k] = m;
           if (primeira) { primeira = false; pronto(); } else render();
-        }, (e) => { erroSync(e); if (primeira) { primeira = false; pronto(); } }));
+        }, (e) => {
+          // regras antigas sem gab_timbrados: o resto do site continua funcionando
+          if (k === "timbrados" && e && e.code === "permission-denied") ui.timbradosBloqueados = true; else erroSync(e);
+          if (primeira) { primeira = false; pronto(); }
+        }));
       }
       let primeiraP = true;
       this.subs.push(this.db.collection(COL("perfis")).doc(u.uid).onSnapshot((d) => {
@@ -82,7 +86,7 @@ const Nuvem = {
     render();
   },
   salvarLocal() {
-    try { localStorage.setItem("gabarito-local-v1", JSON.stringify({ turmas: S.turmas, avaliacoes: S.avaliacoes, resultados: S.resultados, perfil: S.perfil })); }
+    try { localStorage.setItem("gabarito-local-v1", JSON.stringify({ ...Object.fromEntries(KINDS.map((k) => [k, S[k]])), perfil: S.perfil })); }
     catch (e) { toast("Não consegui salvar neste aparelho (armazenamento cheio ou bloqueado)."); }
   },
 
@@ -327,6 +331,14 @@ function telaFolhas() {
     <div class="duas">
       <div class="bloco">
         ${seletorAv()}
+        <div class="campo"><span>Papel timbrado</span>
+          <div class="timbrados-sel" role="radiogroup" aria-label="Papel timbrado">
+            <button type="button" class="timb-op" role="radio" aria-checked="${!timbradoDaAv(av)}" data-acao="usar-timbrado" data-id=""><span class="sem">sem</span>Sem timbrado</button>
+            ${listaTimbrados().map((t) => `<button type="button" class="timb-op" role="radio" aria-checked="${av.timbradoId === t.id}" data-acao="usar-timbrado" data-id="${t.id}"><img src="${esc(t.img)}" alt="">${esc(t.nome)}</button>`).join("")}
+            <button type="button" class="timb-op add" data-acao="add-timbrado">+ Adicionar timbrado</button>
+          </div>
+          ${avisoRegrasTimbrado()}
+        </div>
         <div>
           ${ts.length ? ts.map((t) => `<div class="linha-turma"><span class="nome">${esc(t.nome)} <small class="muted">· ${neutra ? "" : (t.alunos || []).length + " folhas"}</small></span>
             ${neutra ? `<label class="check" title="Cópias">Cópias <input type="number" min="1" max="200" value="${(t.alunos || []).length || 30}" id="cop-${t.id}" style="width:84px"></label>` : ""}
@@ -350,20 +362,21 @@ async function desenharPrevia() {
   if (!cv || !av) return;
   const t = (av.turmas || []).map((id) => S.turmas[id]).filter(Boolean)[0] || null;
   const aluno = av.tipo === "neutra" ? null : (t && t.alunos && t.alunos[0]) || { id: "00000000", ra: "00000000", nome: "NOME DO ALUNO", num: 1 };
-  const imgs = await carregarImagens([S.perfil.logo]);
-  desenharCanvas(cv.getContext("2d"), opsFolha({ av, perfil: S.perfil, turma: t, aluno, ver: "A" }), cv.width / A4.w, imgs);
+  const timbrado = timbradoDaAv(av);
+  const imgs = await carregarImagens([S.perfil.logo, timbrado && timbrado.img]);
+  desenharCanvas(cv.getContext("2d"), opsFolha({ av, perfil: S.perfil, turma: t, aluno, ver: "A", timbrado }), cv.width / A4.w, imgs);
 }
 
 /* ---------- Corrigir ---------- */
 function telaCorrigir() {
   const ls = ui.leituras;
-  return `<div class="cab"><div><h2>Corrigir</h2><p>Aponte o celular para a folha preenchida. O site acha os quadrados dos cantos, lê o QR code, identifica a avaliação, a turma e o aluno, e lança a nota.</p></div></div>
+  return `<div class="cab"><div><h2>Corrigir</h2><p>Aponte o celular para a folha preenchida. O site acha os 4 quadrados pretos em volta do gabarito, lê o QR code, identifica a avaliação, a turma e o aluno, e lança a nota.</p></div></div>
     ${ui.camera ? `<div id="camSlot"></div>` : `<div class="grandes">
       <button class="grande" data-acao="camera"><span class="ic"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 8h3l2-3h8l2 3h3v12H3z"/><circle cx="12" cy="13.5" r="3.8"/></svg></span><span><strong>Câmera ao vivo</strong><small>Lê automaticamente quando a folha inteira aparece</small></span></button>
       <button class="grande" data-acao="foto"><span class="ic"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m3 16 5-5 4 4 3-3 6 6"/></svg></span><span><strong>Tirar foto</strong><small>Usa a câmera do celular, com mais resolução</small></span></button>
       <button class="grande" data-acao="galeria"><span class="ic"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h10l6 6v10H4z"/><path d="M14 4v6h6"/></svg></span><span><strong>Enviar imagens</strong><small>Várias fotos ou digitalizações de uma vez</small></span></button>
     </div>`}
-    <div class="aviso info" style="margin-top:14px">Dicas: folha apoiada numa mesa, os 4 quadrados pretos aparecendo, boa luz e sem sombra do celular sobre a folha.</div>
+    <div class="aviso info" style="margin-top:14px">Dicas: folha apoiada numa mesa, celular paralelo à folha, os 4 quadrados pretos em volta do gabarito aparecendo, boa luz e sem sombra do celular. Os pontos piscando mostram os quadrados que já foram encontrados.</div>
     <div style="display:grid;gap:12px;margin-top:16px">${ls.map(cartaoLeitura).join("")}</div>`;
 }
 
@@ -475,21 +488,38 @@ function linhasNotas(av, filtro) {
 }
 
 /* ---------- Escola ---------- */
+const listaTimbrados = () => Object.values(S.timbrados).sort((a, b) => (a.criadoEm || "").localeCompare(b.criadoEm || ""));
+function timbradoDaAv(av) {
+  const t = av && av.timbradoId && S.timbrados[av.timbradoId];
+  return t ? { img: t.img, modo: t.modo || "pagina", nome: t.nome } : null;
+}
+const avisoRegrasTimbrado = () => (ui.timbradosBloqueados ? `<div class="aviso">Para guardar timbrados na nuvem, publique de novo as regras do Firebase (arquivo regras-firebase-gabarito.txt atualizado).</div>` : "");
 function telaEscola() {
   const p = S.perfil, u = Nuvem.usuario;
+  const ts = listaTimbrados();
   return `<div class="cab"><div><h2>Escola e conta</h2><p>Estes dados aparecem no cabeçalho de todas as suas folhas.</p></div></div>
     <div class="bloco">
       <div class="grade-campos">
-        <label class="campo" style="grid-column:1/-1"><span>Escola</span><input type="text" id="pfEscola" value="${esc(p.escola)}" placeholder="Ex.: CENTRO DE ATIVIDADES ENG ROBERTO EGIDIO DE AZEVEDO"></label>
-        <label class="campo"><span>Município</span><input type="text" id="pfMunicipio" value="${esc(p.municipio)}"></label>
-        <label class="campo"><span>Regional</span><input type="text" id="pfRegional" value="${esc(p.regional)}" placeholder="Ex.: PE"></label>
+        <label class="campo" style="grid-column:1/-1"><span>1ª linha do cabeçalho <small>(instituição)</small></span><input type="text" id="pfInst" value="${esc(p.instituicao != null ? p.instituicao : CABECALHO_PADRAO.instituicao)}" placeholder="${esc(CABECALHO_PADRAO.instituicao)}"></label>
+        <label class="campo" style="grid-column:1/-1"><span>2ª linha do cabeçalho <small>(escola)</small></span><input type="text" id="pfEscola" value="${esc(p.escola)}" placeholder="Ex.: CENTRO DE ATIVIDADES ROBERTO EGYDIO DE AZEVEDO – SESI IBURA"></label>
       </div>
       <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap">
         ${p.logo ? `<img src="${esc(p.logo)}" alt="Logo" style="max-height:56px;max-width:180px;background:#fff;padding:4px;border-radius:6px;border:1px solid var(--line)">` : `<span class="muted">Sem logo</span>`}
         <button class="btn peq" data-acao="logo">${p.logo ? "Trocar logo" : "Enviar logo"}</button>
         ${p.logo ? `<button class="btn peq perigo" data-acao="tirar-logo">Remover</button>` : ""}
+        <small class="muted">A logo só aparece nas folhas sem timbrado.</small>
       </div>
       <div class="acoes"><button class="btn pri" data-acao="salvar-perfil">Salvar</button></div>
+    </div>
+    <div class="bloco">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap"><h3>Papéis timbrados</h3><button class="btn peq pri" data-acao="add-timbrado">Adicionar timbrado</button></div>
+      <p class="muted" style="margin:0">Envie o papel timbrado da escola (o .docx do modelo, um PDF ou uma imagem). Na aba Folhas você escolhe, para cada avaliação, se a folha sai com timbrado ou sem.</p>
+      ${avisoRegrasTimbrado()}
+      ${ts.length ? `<div class="lista-timb">${ts.map((t) => `<div class="timb-card">
+        <img src="${esc(t.img)}" alt="Timbrado ${esc(t.nome)}">
+        <label class="campo"><span>Nome</span><input type="text" value="${esc(t.nome)}" data-muda="timbrado-nome" data-id="${t.id}"></label>
+        <button class="btn peq perigo" data-acao="excluir-timbrado" data-id="${t.id}">Excluir</button>
+      </div>`).join("")}</div>` : `<p class="muted" style="margin:0">Nenhum timbrado ainda. Sem timbrado, a folha sai com o cabeçalho e a logo da escola.</p>`}
     </div>
     <div class="bloco">
       <h3>Conta</h3>
@@ -497,6 +527,61 @@ function telaEscola() {
       : `<p style="margin:0" class="muted">Modo demonstração: os dados ficam salvos só neste navegador. Para usar login e sincronizar entre aparelhos, preencha o arquivo js/config.js com a configuração do Firebase.</p>
       <div class="acoes"><button class="btn" data-acao="exemplo">Carregar dados de exemplo</button></div>`}
     </div>`;
+}
+
+/* --- Timbrados: lê imagem, .docx (maior imagem do arquivo) ou PDF (1ª página) e guarda como JPEG A4 --- */
+function carregarImg(src) {
+  return new Promise((res, rej) => { const im = new Image(); im.onload = () => res(im); im.onerror = () => rej(new Error("imagem inválida")); im.src = src; });
+}
+async function imagemDoTimbrado(file) {
+  const nome = file.name.toLowerCase();
+  if (nome.endsWith(".docx")) {
+    const zip = await JSZip.loadAsync(await file.arrayBuffer());
+    const arqs = Object.keys(zip.files).filter((n) => /^word\/media\/.+\.(png|jpe?g|gif|bmp)$/i.test(n));
+    let melhor = null;
+    for (const n of arqs) {
+      const tipo = /png$/i.test(n) ? "image/png" : /gif$/i.test(n) ? "image/gif" : /bmp$/i.test(n) ? "image/bmp" : "image/jpeg";
+      const url = URL.createObjectURL(new Blob([await zip.file(n).async("arraybuffer")], { type: tipo }));
+      try { const im = await carregarImg(url); if (!melhor || im.width * im.height > melhor.width * melhor.height) melhor = im; } catch (e) { /* ignora */ }
+    }
+    if (!melhor) throw new Error("Não encontrei imagem de timbrado dentro deste .docx.");
+    return melhor;
+  }
+  if (nome.endsWith(".pdf")) {
+    await garantirPdfJs();
+    const pdf = await pdfjsLib.getDocument({ data: await file.arrayBuffer() }).promise;
+    const pg = await pdf.getPage(1);
+    const vp0 = pg.getViewport({ scale: 1 }), vp = pg.getViewport({ scale: 1240 / vp0.width });
+    const cv = document.createElement("canvas"); cv.width = Math.round(vp.width); cv.height = Math.round(vp.height);
+    await pg.render({ canvasContext: cv.getContext("2d"), viewport: vp }).promise;
+    return cv;
+  }
+  const url = URL.createObjectURL(file);
+  try { return await carregarImg(url); } catch (e) { throw new Error("Não consegui abrir este arquivo. Use .docx, .pdf, .png ou .jpg."); }
+}
+async function prepararTimbrado(file) {
+  const im = await imagemDoTimbrado(file);
+  const W = im.width, H = im.height;
+  const pagina = Math.abs(H / W - 297 / 210) < 0.06;
+  const cv = document.createElement("canvas");
+  cv.width = 1240; cv.height = pagina ? 1754 : Math.max(1, Math.round((1240 * H) / W));
+  const ctx = cv.getContext("2d");
+  ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, cv.width, cv.height);
+  ctx.drawImage(im, 0, 0, cv.width, cv.height);
+  return { img: cv.toDataURL("image/jpeg", 0.82), modo: pagina ? "pagina" : "faixa" };
+}
+async function adicionarTimbrado(file) {
+  toast("Preparando o timbrado…");
+  let t;
+  try { t = await prepararTimbrado(file); } catch (e) { toast(e.message); return; }
+  const nome = file.name.replace(/\.[^.]+$/, "").replace(/[_-]+/g, " ").trim().slice(0, 40) || "Timbrado";
+  abrirPainel(`${cabPainel("Novo timbrado")}
+    <div class="painel-corpo">
+      <img src="${t.img}" alt="Prévia do timbrado" style="width:min(100%,320px);aspect-ratio:210/297;object-fit:contain;background:#fff;border:1px solid var(--line);border-radius:6px;justify-self:center">
+      <label class="campo"><span>Nome do timbrado <small>(para identificar na hora de escolher)</small></span><input type="text" id="timbNome" value="${esc(nome)}" maxlength="40"></label>
+      ${t.modo === "faixa" ? `<small class="muted">A imagem não tem o formato de uma página A4, então ela vai no topo da folha.</small>` : ""}
+    </div>
+    <div class="painel-rodape"><button class="btn" data-acao="fechar">Cancelar</button><button class="btn pri" data-acao="salvar-timbrado">Salvar timbrado</button></div>`, { timbrado: t });
 }
 
 /* ===================== Painéis ===================== */
@@ -638,16 +723,18 @@ function painelAvaliacao(av0) {
     <div class="painel-corpo">
       <div class="grade-campos">
         <label class="campo" style="grid-column:1/-1"><span>Título</span><input type="text" id="avTitulo" value="${esc(av.titulo)}" placeholder="Ex.: AVALIA II - 2026"></label>
-        <label class="campo"><span>Componente</span><input type="text" id="avComp" value="${esc(av.componente)}" placeholder="Ex.: LINGUAGENS"></label>
+        <label class="campo"><span>Disciplina</span><input type="text" id="avComp" value="${esc(av.componente)}" placeholder="Ex.: Ciências"></label>
+        <label class="campo"><span>Professor(a)</span><input type="text" id="avProf" value="${esc(av.professor)}" placeholder="Nome que sai no cabeçalho"></label>
         <label class="campo"><span>Turno <small>(opcional)</small></span><input type="text" id="avTurno" value="${esc(av.turno)}" placeholder="Ex.: Manhã"></label>
-        <label class="campo" style="grid-column:1/-1"><span>Linha abaixo do componente <small>(a série vem da turma)</small></span><input type="text" id="avSub" value="${esc(av.subtitulo)}"></label>
+        <label class="campo" style="grid-column:1/-1"><span>Conteúdo vivenciado <small>(opcional; em branco fica o espaço para escrever)</small></span><input type="text" id="avConteudo" value="${esc(av.conteudo)}" placeholder="Ex.: Sistema solar; movimentos da Terra"></label>
+        <label class="campo" style="grid-column:1/-1"><span>Metodologia aplicada <small>(opcional)</small></span><textarea id="avMetodo" rows="2" placeholder="Ex.: Prova objetiva individual, sem consulta.">${esc(av.metodologia)}</textarea></label>
       </div>
       <fieldset style="border:0;padding:0;margin:0;display:grid;gap:8px"><legend class="campo" style="margin-bottom:6px;font-weight:700;color:var(--muted);font-size:.9rem">Tipo de folha</legend>
         <div class="opcoes-tipo">
           <label class="opcao"><input type="radio" name="avTipo" value="nominal" ${av.tipo !== "neutra" ? "checked" : ""} data-muda="av-tipo"><span><strong>Nominal</strong><small>Uma folha por aluno, com nome, Nº, código de barras do R.A. e QR code. A nota vai direto para a planilha da turma.</small></span></label>
           <label class="opcao"><input type="radio" name="avTipo" value="neutra" ${av.tipo === "neutra" ? "checked" : ""} data-muda="av-tipo"><span><strong>Neutra</strong><small>Sem nome, para pôr dentro da prova. O QR code identifica a avaliação e a turma; o site mostra o resultado na hora.</small></span></label>
         </div>
-        <label class="check" id="avNumLinha" ${av.tipo === "neutra" ? "" : "hidden"}><input type="checkbox" id="avNum" ${av.numChamada ? "checked" : ""}> Grade para o aluno pintar o Nº de chamada <small class="muted">(a nota vai para o aluno certo da turma)</small></label>
+        <label class="check" id="avNumLinha" ${av.tipo === "neutra" ? "" : "hidden"}><input type="checkbox" id="avNum" data-muda="av-recalc" ${av.numChamada ? "checked" : ""}> Grade para o aluno pintar o Nº de chamada <small class="muted">(a nota vai para o aluno certo da turma)</small></label>
       </fieldset>
       <div class="campo"><span>Turmas</span>${ts.length ? `<div style="display:flex;flex-wrap:wrap;gap:8px 18px">${ts.map((t) => `<label class="check"><input type="checkbox" class="avTurma" value="${t.id}" ${(av.turmas || []).includes(t.id) ? "checked" : ""}> ${esc(t.nome)}</label>`).join("")}</div>` : `<span class="muted" style="font-weight:400">Importe as turmas primeiro (aba Turmas).</span>`}</div>
       <div class="bloco">
@@ -665,7 +752,7 @@ function painelAvaliacao(av0) {
         <div id="avGabTopo"></div><div id="avGabGrade"></div>
       </div>
       <details class="bloco"><summary style="cursor:pointer;font-weight:700">Mais opções da folha</summary>
-        <label class="check"><input type="checkbox" id="avTrans" ${av.transcricao ? "checked" : ""}> Incluir quadro para o aluno transcrever uma frase</label>
+        <label class="check"><input type="checkbox" id="avTrans" data-muda="av-recalc" ${av.transcricao ? "checked" : ""}> Incluir quadro para o aluno transcrever uma frase</label>
         <label class="campo"><span>Texto do quadro</span><input type="text" id="avTransTxt" value="${esc(av.transcricaoTexto)}" placeholder="ATENÇÃO: TRANSCREVA AQUI, COM A SUA CALIGRAFIA USUAL, A FRASE APRESENTADA NA CAPA DO SEU CADERNO DE QUESTÕES."></label>
         <label class="campo"><span>Instruções <small>(uma por linha; vazio usa o padrão)</small></span><textarea id="avInstr" rows="5" placeholder="${esc(INSTRUCOES_PADRAO.join("\n"))}">${esc(av.instrucoes)}</textarea></label>
       </details>
@@ -681,6 +768,9 @@ function validarSecoes(secs) {
   if (tot < LIMITES.min) return `A prova precisa ter pelo menos ${LIMITES.min} questões.`;
   if (esc_ > LIMITES.maxEscolha) return `Questões de alternativas: no máximo ${LIMITES.maxEscolha} (agora são ${esc_}).`;
   if (tot > LIMITES.maxTotal) return `No máximo ${LIMITES.maxTotal} questões no total (agora são ${tot}).`;
+  const trans = $("#avTrans") && $("#avTrans").checked;
+  const num = document.querySelector("input[name=avTipo]:checked") && document.querySelector("input[name=avTipo]:checked").value === "neutra" && $("#avNum") && $("#avNum").checked;
+  if (!geometria({ secs: secs.map((x) => ({ t: x.tipo, n: x.n })), trans, num }).cabe) return "Essa combinação de questões não cabe numa folha. Diminua a quantidade ou use menos alternativas.";
   return "";
 }
 /* Pontos de cada questão, como ficariam se salvasse agora */
@@ -763,7 +853,8 @@ function salvarAvaliacao() {
   const pontos = ppq ? p.secs.flatMap((x, si) => p.pts[si].slice(0, x.n).map((v) => (v === "" || v == null ? null : +v))) : [];
   const dados = {
     ...av,
-    titulo: $("#avTitulo").value.trim(), componente: $("#avComp").value.trim(), subtitulo: $("#avSub").value.trim(), turno: $("#avTurno").value.trim(),
+    titulo: $("#avTitulo").value.trim(), componente: $("#avComp").value.trim(), professor: $("#avProf").value.trim(), turno: $("#avTurno").value.trim(),
+    conteudo: $("#avConteudo").value.trim(), metodologia: $("#avMetodo").value.trim(),
     tipo: document.querySelector("input[name=avTipo]:checked").value,
     secoes: p.secs.map((s) => ({ nome: s.nome.trim(), tipo: s.tipo, n: s.n, certo: s.certo, errado: s.errado })),
     versoes: nv, gabaritos, anulaErrada: $("#avAnula").checked, pontoPorQuestao: ppq, pontos,
@@ -809,7 +900,7 @@ function atualizarPainelResultado() {
 async function processarCanvas(canvas, arquivo) {
   let L;
   try { L = lerFolha(canvas); }
-  catch (e) { return { erro: e.message, arquivo, codigo: e.codigo }; }
+  catch (e) { return { erro: e.message, arquivo, codigo: e.codigo, marcas: e.marcas || [] }; }
   const info = L.info;
   const av = AV(info.avId);
   if (!av) return { erro: "Esta folha é de uma avaliação que não está na sua conta (pode ter sido excluída ou ser de outro professor).", arquivo };
@@ -838,7 +929,7 @@ async function processarCanvas(canvas, arquivo) {
     if (L.numero != null) res.numLido = L.numero;
   }
   await Nuvem.put("resultados", res.id, res);
-  return { resId: res.id, res, previa, substituiu, arquivo, aviso };
+  return { resId: res.id, res, previa, substituiu, arquivo, aviso, pts: L.pts };
 }
 
 async function processarArquivos(files) {
@@ -854,7 +945,40 @@ async function processarArquivos(files) {
   toast(ultimo && !ultimo.erro ? "Folha lida e nota salva." : "Não foi possível ler a folha.");
 }
 
-/* Câmera ao vivo: tenta ler um quadro a cada ~0,4 s; ao ler, pausa até o professor pedir a próxima */
+/* Câmera ao vivo: lê um quadro atrás do outro. Pontos piscando mostram, em tempo real, os quadrados pretos
+   que o leitor está enxergando; com os 4 achados e o QR lido, a nota é salva e a câmera pausa. */
+const MOLDURA_ASPECTO = (MARCAS.centros[1][0] - MARCAS.centros[0][0] + MARCAS.lado) / (MARCAS.centros[2][1] - MARCAS.centros[1][1] + MARCAS.lado);
+function areaDoVideo(video) {
+  const vw = video.videoWidth, vh = video.videoHeight, bw = video.clientWidth, bh = video.clientHeight;
+  if (!vw || !bw) return null;
+  const k = Math.min(bw / vw, bh / vh);
+  return { x: video.offsetLeft + (bw - vw * k) / 2, y: video.offsetTop + (bh - vh * k) / 2, w: vw * k, h: vh * k, k };
+}
+function posicionarMira(cam) {
+  const a = areaDoVideo(cam.video);
+  if (!a) return null;
+  // retângulo-guia no formato da moldura do gabarito, dentro da área real do vídeo e com folga nas bordas
+  const w = Math.min(a.w * 0.84, a.h * 0.84 * MOLDURA_ASPECTO), h = w / MOLDURA_ASPECTO;
+  const m = cam.el.querySelector(".mira");
+  Object.assign(m.style, { left: a.x + (a.w - w) / 2 + "px", top: a.y + (a.h - h) / 2 + "px", width: w + "px", height: h + "px" });
+  return a;
+}
+function mostrarPontos(cam, pts, escala, estado) {
+  const a = posicionarMira(cam);
+  const camada = cam.el.querySelector(".pontos");
+  const cantos = cam.el.querySelectorAll(".mira i");
+  const luzes = cam.el.querySelectorAll(".contador b");
+  if (!a) return;
+  const lista = (pts || []).slice(0, 4).map((p) => ({ x: a.x + (p.x / escala) * a.k, y: a.y + (p.y / escala) * a.k }));
+  camada.innerHTML = lista.map((p) => `<span class="ponto ${estado}" style="left:${p.x}px;top:${p.y}px"></span>`).join("");
+  // acende o canto da mira mais próximo de cada ponto
+  const m = cam.el.querySelector(".mira").getBoundingClientRect(), base = cam.el.getBoundingClientRect();
+  const cx = m.left - base.left + m.width / 2, cy = m.top - base.top + m.height / 2;
+  const acesos = new Set(lista.map((p) => (p.y < cy ? (p.x < cx ? 0 : 1) : p.x < cx ? 3 : 2)));
+  cantos.forEach((c, i) => c.classList.toggle("ok", acesos.has(i)));
+  luzes.forEach((l, i) => l.classList.toggle("on", i < lista.length));
+  cam.el.querySelector(".contador span").textContent = `${lista.length} de 4`;
+}
 async function abrirCamera() {
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { toast("Este navegador não libera a câmera aqui. Use 'Tirar foto'."); return; }
   let stream;
@@ -862,11 +986,17 @@ async function abrirCamera() {
   catch (e) { toast("Não consegui abrir a câmera. Verifique a permissão do navegador ou use 'Tirar foto'."); return; }
   const el = document.createElement("div");
   el.className = "camera";
-  el.innerHTML = `<video playsinline muted autoplay></video><div class="guias"><i></i><i></i><i></i><i></i></div><button class="btn peq fechar" data-acao="fechar-camera">Fechar câmera</button><div class="status">Encaixe os 4 quadrados pretos da folha nas marcas dos cantos.</div>`;
+  el.innerHTML = `<video playsinline muted autoplay></video>
+    <div class="mira"><i></i><i></i><i></i><i></i></div>
+    <div class="pontos"></div>
+    <div class="contador" aria-live="polite"><b></b><b></b><b></b><b></b><span>0 de 4</span></div>
+    <button class="btn peq fechar" data-acao="fechar-camera">Fechar câmera</button>
+    <div class="status">Enquadre o gabarito: os 4 quadrados pretos dentro das marcas.</div>`;
   const video = el.querySelector("video");
   video.srcObject = stream;
   ui.camera = { el, stream, video, pausada: false, timer: null };
   render();
+  video.addEventListener("loadedmetadata", () => posicionarMira(ui.camera || { el, video }));
   let wake = null;
   try { wake = await navigator.wakeLock.request("screen"); } catch (e) { /* opcional */ }
   ui.camera.wake = wake;
@@ -875,24 +1005,33 @@ async function abrirCamera() {
   const ciclo = async () => {
     const cam = ui.camera;
     if (!cam || cam.el !== el) return;
-    if (!cam.pausada && video.videoWidth) {
-      const k = Math.min(1, 1600 / Math.max(video.videoWidth, video.videoHeight));
-      cv.width = Math.round(video.videoWidth * k); cv.height = Math.round(video.videoHeight * k);
-      cv.getContext("2d", { willReadFrequently: true }).drawImage(video, 0, 0, cv.width, cv.height);
-      const r = await processarCanvas(cv, "Câmera");
-      el.querySelector(".guias").classList.toggle("ok", !r.erro || r.codigo === "qr");
-      if (!r.erro) {
-        cam.pausada = true;
-        if (navigator.vibrate) navigator.vibrate(120);
-        ui.leituras.unshift(r);
-        const res = S.resultados[r.resId] || r.res, av = AV(res.avaliacaoId);
-        status.innerHTML = `<strong>${esc(res.alunoId ? res.nome : "Folha neutra")}: ${fmt(corrigir(av, res.respostas, res.versao).nota)}</strong> · salvo${r.aviso ? " · " + esc(r.aviso) : ""}. <button class="btn peq pri" data-acao="proxima" style="margin-left:8px">Próxima folha</button>`;
-        render();
-      } else if (r.codigo === "qr") status.textContent = "Folha encontrada. Aproxime um pouco para ler o QR code.";
-      else if (r.codigo === "cantos") status.textContent = "Encaixe os 4 quadrados pretos da folha nas marcas dos cantos.";
-      else status.textContent = r.erro;
+    try {
+      if (!cam.pausada && video.videoWidth) {
+        // resolução cheia (até 1920 px): o QR e as bolinhas ficam mais nítidos
+        const k = Math.min(1, 1920 / Math.max(video.videoWidth, video.videoHeight));
+        cv.width = Math.round(video.videoWidth * k); cv.height = Math.round(video.videoHeight * k);
+        cv.getContext("2d", { willReadFrequently: true }).drawImage(video, 0, 0, cv.width, cv.height);
+        const r = await processarCanvas(cv, "Câmera");
+        if (!r.erro) {
+          mostrarPontos(cam, r.pts, k, "ok lido");
+          cam.pausada = true;
+          if (navigator.vibrate) navigator.vibrate(120);
+          ui.leituras.unshift(r);
+          const res = S.resultados[r.resId] || r.res, av = AV(res.avaliacaoId);
+          status.innerHTML = `<strong>${esc(res.alunoId ? res.nome : "Folha neutra")}: ${fmt(corrigir(av, res.respostas, res.versao).nota)}</strong> · salvo${r.aviso ? " · " + esc(r.aviso) : ""}. <button class="btn peq pri" data-acao="proxima" style="margin-left:8px">Próxima folha</button>`;
+          render();
+        } else {
+          const n = (r.marcas || []).length;
+          mostrarPontos(cam, r.marcas, k, r.codigo === "qr" ? "ok" : "");
+          if (r.codigo === "qr") status.textContent = "4 quadrados encontrados! Segure firme ou aproxime um pouco para ler o QR code.";
+          else if (r.codigo === "cantos") status.textContent = n ? `Achei ${Math.min(n, 4)} de 4 quadrados. Enquadre o gabarito inteiro, com os 4 quadrados dentro das marcas.` : "Enquadre o gabarito: os 4 quadrados pretos dentro das marcas.";
+          else status.textContent = r.erro;
+        }
+      } else if (!cam.pausada) posicionarMira(cam);
+    } catch (e) {
+      status.textContent = "Erro ao ler o quadro: " + (e && e.message ? e.message : e);
     }
-    cam.timer = setTimeout(ciclo, 400);
+    cam.timer = setTimeout(ciclo, 250);
   };
   ciclo();
 }
@@ -1001,12 +1140,12 @@ async function gerarFolhas(fmtArq, turmaId) {
   const neutra = av.tipo === "neutra";
   let folhas = [], rotulo;
   if (turmaId === "*") {
-    for (const id of av.turmas || []) if (S.turmas[id]) folhas.push(...folhasPara(av, S.turmas[id], S.perfil));
+    for (const id of av.turmas || []) if (S.turmas[id]) folhas.push(...folhasPara(av, S.turmas[id], S.perfil, 0, timbradoDaAv(av)));
     rotulo = "todas as turmas";
   } else {
     const t = turmaId ? S.turmas[turmaId] : null;
     const cop = neutra ? +($("#cop-" + (turmaId || "-")) || {}).value || 1 : 0;
-    folhas = folhasPara(av, t, S.perfil, cop);
+    folhas = folhasPara(av, t, S.perfil, cop, timbradoDaAv(av));
     rotulo = t ? t.nome : "sem turma";
   }
   if (!folhas.length) { toast("Esta turma não tem alunos."); return; }
@@ -1087,7 +1226,8 @@ const acoes = {
   proxima: () => {
     if (!ui.camera) return;
     ui.camera.pausada = false;
-    ui.camera.el.querySelector(".status").textContent = "Enquadre a próxima folha, com os 4 quadrados pretos dentro das marcas.";
+    ui.camera.el.querySelector(".status").textContent = "Enquadre a próxima folha: os 4 quadrados pretos dentro das marcas.";
+    ui.camera.el.querySelector(".pontos").innerHTML = "";
   },
   foto: () => $("#arqFotos").click(),
   galeria: () => $("#arqGaleria").click(),
@@ -1107,7 +1247,23 @@ const acoes = {
   "copiar-tabela": copiarTabela,
   logo: () => $("#arqLogo").click(),
   "tirar-logo": () => Nuvem.salvarPerfil({ logo: "" }),
-  "salvar-perfil": () => { Nuvem.salvarPerfil({ escola: $("#pfEscola").value.trim(), municipio: $("#pfMunicipio").value.trim(), regional: $("#pfRegional").value.trim() }); toast("Dados da escola salvos."); },
+  "salvar-perfil": () => { Nuvem.salvarPerfil({ instituicao: $("#pfInst").value.trim(), escola: $("#pfEscola").value.trim() }); toast("Dados da escola salvos."); },
+  "add-timbrado": () => $("#arqTimbrado").click(),
+  "salvar-timbrado": () => {
+    const { timbrado, av } = painelAtual;
+    const id = novoId();
+    Nuvem.put("timbrados", id, { ...timbrado, nome: $("#timbNome").value.trim() || "Timbrado", criadoEm: agora() });
+    fecharPainel();
+    const alvo = av || (ui.aba === "folhas" ? avAtual() : null);
+    if (alvo) Nuvem.put("avaliacoes", alvo.id, { ...alvo, timbradoId: id });
+    toast("Timbrado salvo.");
+  },
+  "excluir-timbrado": (el) => armar(el, () => { Nuvem.del("timbrados", el.dataset.id); toast("Timbrado excluído."); }),
+  "usar-timbrado": (el) => {
+    const av = avAtual();
+    if (!av) return;
+    Nuvem.put("avaliacoes", av.id, { ...av, timbradoId: el.dataset.id || "" });
+  },
   exemplo: carregarExemplo,
 };
 
@@ -1131,9 +1287,9 @@ document.addEventListener("change", (e) => {
     else sec[k] = Math.max(0, +el.value || 0);
     ajustarSecoes();
     if (k !== "nome") desenharSecoes(); else desenharGabarito();
-  } else if (m === "av-anula" || m === "av-ppq") desenharSecoes();
+  } else if (m === "av-anula" || m === "av-ppq" || m === "av-recalc") desenharSecoes();
   else if (m === "av-versoes") desenharGabarito();
-  else if (m === "av-tipo") $("#avNumLinha").hidden = document.querySelector("input[name=avTipo]:checked").value !== "neutra";
+  else if (m === "av-tipo") { $("#avNumLinha").hidden = document.querySelector("input[name=avTipo]:checked").value !== "neutra"; desenharSecoes(); }
   else if (m === "pq") {
     painelAtual.pts[+el.dataset.si][+el.dataset.i] = el.value === "" ? "" : Math.max(0, +el.value || 0);
     desenharSecoes();
@@ -1154,6 +1310,9 @@ document.addEventListener("change", (e) => {
     r.versao = el.value; r._editado = true;
     atualizarPainelResultado();
     $("#resGrade").innerHTML = gradeRespostas(av, r).replaceAll('data-muda="resp"', 'data-muda="resp-painel"');
+  } else if (m === "timbrado-nome") {
+    const t = S.timbrados[el.dataset.id];
+    if (t) Nuvem.put("timbrados", t.id, { ...t, nome: el.value.trim() || t.nome });
   } else if (m === "vincular") {
     const r = { ...S.resultados[el.dataset.res] };
     const t = S.turmas[r.turmaId], a = el.value && t && t.alunos.find((x) => x.id === el.value);
@@ -1184,6 +1343,7 @@ document.addEventListener("input", (e) => {
 $("#arqAtas").addEventListener("change", (e) => { const fs = [...e.target.files]; e.target.value = ""; if (fs.length) importarArquivos(fs); });
 $("#arqFotos").addEventListener("change", (e) => { const fs = [...e.target.files]; e.target.value = ""; if (fs.length) processarArquivos(fs); });
 $("#arqGaleria").addEventListener("change", (e) => { const fs = [...e.target.files]; e.target.value = ""; if (fs.length) processarArquivos(fs); });
+$("#arqTimbrado").addEventListener("change", (e) => { const f = e.target.files[0]; e.target.value = ""; if (f) adicionarTimbrado(f); });
 $("#arqLogo").addEventListener("change", (e) => {
   const f = e.target.files[0]; e.target.value = "";
   if (!f) return;
