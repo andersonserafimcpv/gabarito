@@ -749,7 +749,9 @@ function painelAvaliacao(av0) {
       </div>
       <div class="bloco">
         <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap"><h3>Gabarito</h3>
+          <label class="check">Colunas na folha <select id="avColunas" data-muda="av-recalc">${[["", "Automático"], ["1", "1 coluna"], ["2", "2 colunas"], ["3", "3 colunas"]].map(([v, n]) => `<option value="${v}" ${String(av.colunas || "") === v ? "selected" : ""}>${n}</option>`).join("")}</select></label>
           <label class="check">Versões da prova <select id="avVersoes" data-muda="av-versoes">${[1, 2, 3, 4].map((n) => `<option value="${n}" ${+av.versoes === n ? "selected" : ""}>${n === 1 ? "Só uma" : VERSOES.slice(0, n).split("").join(", ")}</option>`).join("")}</select></label></div>
+        <div id="colAviso"></div>
         <div id="avGabTopo"></div><div id="avGabGrade"></div>
       </div>
       <details class="bloco"><summary style="cursor:pointer;font-weight:700">Mais opções da folha</summary>
@@ -771,7 +773,9 @@ function validarSecoes(secs) {
   if (tot > LIMITES.maxTotal) return `No máximo ${LIMITES.maxTotal} questões no total (agora são ${tot}).`;
   const trans = $("#avTrans") && $("#avTrans").checked;
   const num = document.querySelector("input[name=avTipo]:checked") && document.querySelector("input[name=avTipo]:checked").value === "neutra" && $("#avNum") && $("#avNum").checked;
-  if (!geometria({ secs: secs.map((x) => ({ t: x.tipo, n: x.n })), trans, num }).cabe) return "Essa combinação de questões não cabe numa folha. Diminua a quantidade ou use menos alternativas.";
+  const cols = $("#avColunas") ? +$("#avColunas").value || 0 : 0;
+  if (!geometria({ secs: secs.map((x) => ({ t: x.tipo, n: x.n })), trans, num, cols }).cabe)
+    return cols ? `Em ${cols} coluna${cols > 1 ? "s" : ""} as questões não cabem na folha. Escolha mais colunas ou "Automático".` : "Essa combinação de questões não cabe numa folha. Diminua a quantidade ou use menos alternativas.";
   return "";
 }
 /* Pontos de cada questão, como ficariam se salvasse agora */
@@ -805,6 +809,7 @@ function desenharSecoes_() {
   const st = $("#secResumo");
   st.textContent = erro || `${tot} questões · vale ${fmt(valor)}`;
   st.className = "chip " + (erro ? "bad" : "ok");
+  $("#colAviso").innerHTML = erro && /coluna/.test(erro) ? `<div class="aviso erro">${esc(erro)}</div>` : "";
   desenharGabarito();
 }
 function desenharGabarito(soGrade) {
@@ -859,7 +864,7 @@ function salvarAvaliacao() {
     tipo: document.querySelector("input[name=avTipo]:checked").value,
     secoes: p.secs.map((s) => ({ nome: s.nome.trim(), tipo: s.tipo, n: s.n, certo: s.certo, errado: s.errado })),
     versoes: nv, gabaritos, anulaErrada: $("#avAnula").checked, pontoPorQuestao: ppq, pontos,
-    numChamada: $("#avNum").checked,
+    numChamada: $("#avNum").checked, colunas: +$("#avColunas").value || "",
     turmas: [...document.querySelectorAll(".avTurma:checked")].map((c) => c.value),
     transcricao: $("#avTrans").checked, transcricaoTexto: $("#avTransTxt").value.trim(), instrucoes: $("#avInstr").value.trim(),
     criadoEm: av.criadoEm || agora(),
