@@ -23,14 +23,16 @@ function layoutDe(av) {
     secs: (av.secoes || []).map((s) => ({ t: String(s.tipo), n: +s.n })),
     trans: !!av.transcricao,
     num: av.tipo === "neutra" && !!av.numChamada,
+    cols: [1, 2, 3].includes(+av.colunas) ? +av.colunas : 0,   // 0 = automático
   };
 }
-const layoutStr = (L) => L.secs.map((s) => s.t + "-" + s.n).join("_") + "~" + (L.trans ? "t" : "") + (L.num ? "n" : "");
+const layoutStr = (L) => L.secs.map((s) => s.t + "-" + s.n).join("_") + "~" + (L.trans ? "t" : "") + (L.num ? "n" : "") + (L.cols ? L.cols : "");
 function parseLayout(s) {
   const [a, f = ""] = String(s).split("~");
   const secs = a.split("_").map((x) => { const [t, n] = x.split("-"); return { t, n: +n }; });
   if (!secs.length || secs.some((x) => !/^[2-5C]$/.test(x.t) || !(x.n > 0))) return null;
-  return { secs, trans: f.includes("t"), num: f.includes("n") };
+  const c = /[1-3]/.exec(f);
+  return { secs, trans: f.includes("t"), num: f.includes("n"), cols: c ? +c[0] : 0 };
 }
 
 /* Geometria das questões dentro da moldura (em mm na folha), a partir do layout */
@@ -48,13 +50,13 @@ function geometria(L) {
   const maxAlt = Math.max(...secs.map((s) => letrasTipo(s.t).length));
   const lab = nQ >= 100 ? 9.5 : 8.5, gap = 3.5;
   const maxCols = Math.max(1, Math.floor((larg + gap) / (lab + maxAlt * GRADE.pxMin + gap)));
-  // de preferência duas colunas (bolinhas maiores); mais colunas só quando não cabe
-  let cols = Math.min(maxCols, 2);
+  // colunas escolhidas pelo professor; no automático, de preferência duas (bolinhas maiores) e mais só quando não cabe
+  let cols = L.cols || Math.min(maxCols, 2);
   let rows, pitch;
   for (;;) {
     rows = Math.ceil(slots.length / cols);
     pitch = rows > 1 ? Math.min(9, (bottom - top) / (rows - 1)) : 9;
-    if (pitch >= 5.4 || cols >= maxCols) break;
+    if (L.cols || pitch >= 5.4 || cols >= maxCols) break;
     cols++;
   }
   const gapC = cols <= 2 ? 14 : cols <= 4 ? 6 : gap;
