@@ -135,6 +135,17 @@ const INSTRUCOES_PADRAO = [
 ];
 const METODOLOGIA_PADRAO = "AULAS EXPOSITIVAS; RESOLUÇÃO DE EXERCÍCIOS; ATIVIDADES SISTEMÁTICAS;";
 const metodologiaDe = (av) => (av.metodologia != null && String(av.metodologia).trim() !== "" ? av.metodologia : METODOLOGIA_PADRAO);
+/* Campos opcionais do cabeçalho (turno, conteúdo vivenciado, metodologia) e a posição da linha Instruções | Exemplo | Nota,
+   que sobe quando as faixas saem. A moldura do gabarito não muda de lugar. */
+function cabecalhoDe(av) {
+  const turno = !av.semTurno;
+  const conteudo = !av.transcricao && !av.semConteudo, metodo = !av.transcricao && !av.semMetodologia;
+  let y = CAB.conteudo.y;
+  if (av.transcricao) y = CAB.linha.y;
+  else { if (conteudo) y += CAB.conteudo.h + 1.6; if (metodo) y += CAB.metodo.h + 1.6; }
+  const fim = CAB.linha.y + CAB.linha.h;
+  return { turno, conteudo, metodo, conteudoY: CAB.conteudo.y, metodoY: conteudo ? CAB.metodo.y : CAB.conteudo.y, linhaY: y, linhaH: Math.min(34, fim - y) };
+}
 const CABECALHO_PADRAO = { instituicao: "SERVIÇO SOCIAL DA INDÚSTRIA - SESI – DR PERNAMBUCO" };
 
 /* Valor total da prova (soma dos pontos de cada questão) */
@@ -219,14 +230,11 @@ function opsFolha(d) {
   campo(65, 41.3, 78, 6.8, "Disciplina:", av.componente || "");
   campo(145, 41.3, 54, 6.8, "Turma:", turma ? turma.nome : "");
   const turno = av.turno || (turma && turma.turno) || "";
-  if (versoes > 1) {
-    campo(X0, 49.6, 118, 6.8, "Professor(a):", av.professor || "");
-    campo(131, 49.6, 36, 6.8, "Turno:", turno);
-    campo(169, 49.6, 30, 6.8, "Versão:", ver, 10.5, true);
-  } else {
-    campo(X0, 49.6, 132, 6.8, "Professor(a):", av.professor || "");
-    campo(145, 49.6, 54, 6.8, "Turno:", turno);
-  }
+  const cab = cabecalhoDe(av);
+  const xVer = versoes > 1 ? 169 : 201, xTurno = cab.turno ? (versoes > 1 ? 131 : 145) : xVer;
+  campo(X0, 49.6, xTurno - 2 - X0, 6.8, "Professor(a):", av.professor || "");
+  if (cab.turno) campo(xTurno, 49.6, xVer - 2 - xTurno, 6.8, "Turno:", turno);
+  if (versoes > 1) campo(169, 49.6, 30, 6.8, "Versão:", ver, 10.5, true);
 
   // Conteúdo vivenciado e metodologia (faixas finas) ou quadro de transcrição
   const faixa = (y, h, rot1, rot2, texto) => {
@@ -244,12 +252,12 @@ function opsFolha(d) {
     const linhas = quebrarTexto((av.transcricaoTexto || "ATENÇÃO: TRANSCREVA AQUI, COM A SUA CALIGRAFIA USUAL, A FRASE APRESENTADA NA CAPA DO SEU CADERNO DE QUESTÕES.").toUpperCase(), 6, 44, true);
     linhas.slice(0, 6).forEach((ln, i) => L({ t: "text", s: ln, x: X0 + 1.8, y: y + 3.8 + i * 2.6, size: 6, bold: true, color: "#222222" }));
   } else {
-    faixa(CAB.conteudo.y, CAB.conteudo.h, "Conteúdo", "vivenciado", av.conteudo);
-    faixa(CAB.metodo.y, CAB.metodo.h, "Metodologia", "aplicada", metodologiaDe(av));
+    if (cab.conteudo) faixa(cab.conteudoY, CAB.conteudo.h, "Conteúdo", "vivenciado", av.conteudo);
+    if (cab.metodo) faixa(cab.metodoY, CAB.metodo.h, "Metodologia", "aplicada", metodologiaDe(av));
   }
 
   // Instruções | Exemplo | Desempenho por nota
-  const yLinha = CAB.linha.y, hLinha = CAB.linha.h;
+  const yLinha = cab.linhaY, hLinha = cab.linhaH;
   caixa(X0, yLinha, 104, hLinha, "INSTRUÇÕES:");
   const instr = instrucoesQueCabem(av, 100, hLinha);
   instr.linhas.forEach((ln, i) => L({ t: "text", s: ln, x: X0 + 1.8, y: yLinha + 7.4 + i * instr.passo, size: instr.tam, color: "#222222" }));
@@ -551,7 +559,8 @@ async function gerarDOCX(folhas, aoProgredir) {
     desenharCanvas(ctx, opsFolha({ ...d, timbrado: null }), s, imgs);
     zip.file(`word/media/moldura${i + 1}.png`, await recortar(M.x, M.y, M.w, M.h));
     rel(`rIdM${i + 1}`, `moldura${i + 1}.png`);
-    if (!exemploFeito) { zip.file("word/media/exemplo.png", await recortar(EXEMPLO.x - 0.3, CAB.linha.y + EXEMPLO.dy - 0.3, EXEMPLO.w + 0.6, EXEMPLO.h + 0.6)); rel("rIdEx", "exemplo.png"); exemploFeito = true; }
+    const cab = cabecalhoDe(av);
+    if (!exemploFeito) { zip.file("word/media/exemplo.png", await recortar(EXEMPLO.x - 0.3, cab.linhaY + EXEMPLO.dy - 0.3, EXEMPLO.w + 0.6, EXEMPLO.h + 0.6)); rel("rIdEx", "exemplo.png"); exemploFeito = true; }
 
     let ancoras = "";
     if (t0 && t0.img) ancoras += t0.modo === "faixa" ? wImagem("rIdTimb", 210, Math.min(17, 210 * 0.08), { ancora: true, atras: true, x: 0, y: 0 }) : wImagem("rIdTimb", 210, 297, { ancora: true, atras: true, x: 0, y: 0 });
@@ -568,21 +577,22 @@ async function gerarDOCX(folhas, aoProgredir) {
     corpo += wEspaco(1.5);
     corpo += wTabela([54, 80, 54], [wCelula(54, campoW("Data:", "____/____/" + new Date().getFullYear(), { cinza: true, pt: 8.5 })), wCelula(80, campoW("Disciplina:", av.componente || "")), wCelula(54, campoW("Turma:", turma ? turma.nome : ""))], h);
     corpo += wEspaco(1.5);
-    corpo += versoes > 1
-      ? wTabela([120, 38, 30], [wCelula(120, campoW("Professor(a):", av.professor || "")), wCelula(38, campoW("Turno:", turno)), wCelula(30, campoW("Versão:", ver, { b: true, pt: 10.5 }))], h)
-      : wTabela([134, 54], [wCelula(134, campoW("Professor(a):", av.professor || "")), wCelula(54, campoW("Turno:", turno))], h);
+    const celVer = versoes > 1 ? [wCelula(30, campoW("Versão:", ver, { b: true, pt: 10.5 }))] : [];
+    const largTurno = cab.turno ? (versoes > 1 ? 38 : 54) : 0, largProf = 188 - largTurno - (versoes > 1 ? 30 : 0);
+    corpo += wTabela([largProf, ...(largTurno ? [largTurno] : []), ...(versoes > 1 ? [30] : [])],
+      [wCelula(largProf, campoW("Professor(a):", av.professor || "")), ...(largTurno ? [wCelula(largTurno, campoW("Turno:", turno))] : []), ...celVer], h);
     corpo += wEspaco(2);
     const faixaW = (r1, r2, texto, alt) => wTabela([28, 160], [wCelula(28, wPar(wRun(r1, { b: true, pt: 6.8, cor: "333333" }), { linha: 3 }) + wPar(wRun(r2, { b: true, pt: 6.8, cor: "333333" }), { linha: 3 }), { fundo: "EFEFEF" }), wCelula(160, wPar(wRun(texto || "", { pt: 7.5 }), { linha: 3.3 }))], alt);
     if (av.transcricao) {
       const alt = CAB.metodo.y + CAB.metodo.h - CAB.conteudo.y;
       corpo += wTabela([44, 144], [wCelula(44, wPar(wRun((av.transcricaoTexto || "ATENÇÃO: TRANSCREVA AQUI, COM A SUA CALIGRAFIA USUAL, A FRASE APRESENTADA NA CAPA DO SEU CADERNO DE QUESTÕES.").toUpperCase(), { b: true, pt: 6 }), { linha: 2.6 })), wCelula(144, "")], alt);
+      corpo += wEspaco(CAB.linha.y - CAB.metodo.y - CAB.metodo.h);
     } else {
-      corpo += faixaW("Conteúdo", "vivenciado", av.conteudo, CAB.conteudo.h);
-      corpo += wEspaco(CAB.metodo.y - CAB.conteudo.y - CAB.conteudo.h);
-      corpo += faixaW("Metodologia", "aplicada", metodologiaDe(av), CAB.metodo.h);
+      // cada faixa ocupa sua altura + 1,6 mm de espaço; a última fecha com o espaço até a linha das instruções
+      if (cab.conteudo) corpo += faixaW("Conteúdo", "vivenciado", av.conteudo, CAB.conteudo.h) + wEspaco(1.6);
+      if (cab.metodo) corpo += faixaW("Metodologia", "aplicada", metodologiaDe(av), CAB.metodo.h) + wEspaco(1.6);
     }
-    corpo += wEspaco(CAB.linha.y - CAB.metodo.y - CAB.metodo.h);
-    const instr = instrucoesQueCabem(av, 100, CAB.linha.h);
+    const instr = instrucoesQueCabem(av, 100, cab.linhaH);
     const titulo = (t) => wPar(wRun(t, { b: true, pt: 7, cor: "333333" }), { linha: 4.6, fundo: "EFEFEF" });
     const temCE = (av.secoes || []).some((x) => String(x.tipo) === "C");
     const valor = valorProva(av);
@@ -590,7 +600,7 @@ async function gerarDOCX(folhas, aoProgredir) {
       wCelula(104, titulo("INSTRUÇÕES:") + instr.brutas.map((ln) => wPar(wRun(ln, { pt: instr.tam }), { linha: instr.passo })).join(""), { alinhar: "top" }),
       wCelula(50, titulo("EXEMPLO:") + wPar(wRun("Preencha a bolinha por completo:", { pt: 6.5 }), { linha: 4.4 }) + wPar(wImagem("rIdEx", EXEMPLO.w + 0.6, EXEMPLO.h + 0.6), { linha: 8.4, jc: "center" }) + (temCE ? wPar(wRun("C = Certo   E = Errado", { b: true, pt: 6.5, cor: "333333" }), { linha: 4, jc: "center" }) : ""), { alinhar: "top" }),
       wCelula(34, wPar(wRun("DESEMPENHO POR NOTA", { b: true, pt: 6, cor: "333333" }), { linha: 4.6, fundo: "EFEFEF" }) + wPar("", { linha: 12.5 }) + (valor ? wPar(wRun("Valor: " + valor.toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 2 }), { pt: 6.5, cor: "777777" }), { linha: 3.5, jc: "center" }) : ""), { alinhar: "top" }),
-    ], CAB.linha.h);
+    ], cab.linhaH);
     corpo += wEspaco(1);
     if (aoProgredir) aoProgredir(i + 1, folhas.length);
     if (i % 4 === 3) await new Promise((r) => setTimeout(r));

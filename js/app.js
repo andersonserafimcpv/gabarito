@@ -726,9 +726,9 @@ function painelAvaliacao(av0) {
         <label class="campo" style="grid-column:1/-1"><span>Título</span><input type="text" id="avTitulo" value="${esc(av.titulo)}" placeholder="Ex.: AVALIA II - 2026"></label>
         <label class="campo"><span>Disciplina</span><input type="text" id="avComp" value="${esc(av.componente)}" placeholder="Ex.: Ciências"></label>
         <label class="campo"><span>Professor(a)</span><input type="text" id="avProf" value="${esc(av.professor)}" placeholder="Nome que sai no cabeçalho"></label>
-        <label class="campo"><span>Turno <small>(opcional)</small></span><input type="text" id="avTurno" value="${esc(av.turno)}" placeholder="Ex.: Manhã"></label>
-        <label class="campo" style="grid-column:1/-1"><span>Conteúdo vivenciado <small>(opcional; em branco fica o espaço para escrever)</small></span><input type="text" id="avConteudo" value="${esc(av.conteudo)}" placeholder="Ex.: Sistema solar; movimentos da Terra"></label>
-        <label class="campo" style="grid-column:1/-1"><span>Metodologia aplicada <small>(já vem preenchida; pode mudar)</small></span><textarea id="avMetodo" rows="2">${esc(metodologiaDe(av))}</textarea></label>
+        ${campoOpcional("Turno", "avTurno", "semTurno", av, `<input type="text" id="avTurno" value="${esc(av.turno)}" placeholder="Ex.: Manhã" aria-label="Turno">`)}
+        ${campoOpcional("Conteúdo vivenciado", "avConteudo", "semConteudo", av, `<input type="text" id="avConteudo" value="${esc(av.conteudo)}" placeholder="Em branco fica o espaço para escrever" aria-label="Conteúdo vivenciado">`, true)}
+        ${campoOpcional("Metodologia aplicada", "avMetodo", "semMetodologia", av, `<textarea id="avMetodo" rows="2" aria-label="Metodologia aplicada">${esc(metodologiaDe(av))}</textarea>`, true)}
       </div>
       <fieldset style="border:0;padding:0;margin:0;display:grid;gap:8px"><legend class="campo" style="margin-bottom:6px;font-weight:700;color:var(--muted);font-size:.9rem">Tipo de folha</legend>
         <div class="opcoes-tipo">
@@ -849,6 +849,13 @@ function ajustarSecoes() {
     const a = p.pts[si] || (p.pts[si] = []); while (a.length < s.n) a.push("");
   });
 }
+/* Campo do cabeçalho com a caixinha "Na folha" para incluir ou tirar da folha impressa */
+function campoOpcional(rotulo, id, chave, av, controle, largo) {
+  const ligado = !av[chave];
+  return `<div class="campo opcional${ligado ? "" : " desligado"}"${largo ? ' style="grid-column:1/-1"' : ""}>
+    <span class="cab-opcional">${rotulo}<label class="check"><input type="checkbox" class="naFolha" data-chave="${chave}" data-alvo="${id}" data-muda="av-nafolha" ${ligado ? "checked" : ""}> Na folha</label></span>
+    ${controle}</div>`;
+}
 function salvarAvaliacao() {
   const p = painelAtual, { av } = p;
   const erro = validarSecoes(p.secs);
@@ -861,6 +868,7 @@ function salvarAvaliacao() {
     ...av,
     titulo: $("#avTitulo").value.trim(), componente: $("#avComp").value.trim(), professor: $("#avProf").value.trim(), turno: $("#avTurno").value.trim(),
     conteudo: $("#avConteudo").value.trim(), metodologia: $("#avMetodo").value.trim(),
+    ...Object.fromEntries([...document.querySelectorAll(".naFolha")].map((c) => [c.dataset.chave, !c.checked])),
     tipo: document.querySelector("input[name=avTipo]:checked").value,
     secoes: p.secs.map((s) => ({ nome: s.nome.trim(), tipo: s.tipo, n: s.n, certo: s.certo, errado: s.errado })),
     versoes: nv, gabaritos, anulaErrada: $("#avAnula").checked, pontoPorQuestao: ppq, pontos,
@@ -1316,6 +1324,7 @@ document.addEventListener("change", (e) => {
     if (k !== "nome") desenharSecoes(); else desenharGabarito();
   } else if (m === "av-anula" || m === "av-ppq" || m === "av-recalc") desenharSecoes();
   else if (m === "av-versoes") desenharGabarito();
+  else if (m === "av-nafolha") el.closest(".opcional").classList.toggle("desligado", !el.checked);
   else if (m === "av-tipo") { $("#avNumLinha").hidden = document.querySelector("input[name=avTipo]:checked").value !== "neutra"; desenharSecoes(); }
   else if (m === "pq") {
     painelAtual.pts[+el.dataset.si][+el.dataset.i] = el.value === "" ? "" : Math.max(0, +el.value || 0);
