@@ -352,7 +352,7 @@ function previaLeitura(canvas, leitura, gabarito, largura = 520) {
       const [x2] = H(X + geo.r, Y);
       const rad = Math.max(3 * esp, Math.abs(x2 - x) * k + 1.5 * esp);
       ctx.beginPath(); ctx.arc(x * k, y * k, rad, 0, Math.PI * 2);
-      if (marcada) { ctx.strokeStyle = r === "*" ? "#e08a00" : correta || !gab || gab === "X" ? "#16a34a" : "#dc2626"; ctx.lineWidth = 2.5 * esp; }
+      if (marcada) { ctx.strokeStyle = r === "*" || gab === "?" ? "#e08a00" : correta || !gab || gab === "X" ? "#16a34a" : "#dc2626"; ctx.lineWidth = 2.5 * esp; }
       else { ctx.strokeStyle = "rgba(22,163,74,.6)"; ctx.lineWidth = 1.2 * esp; ctx.setLineDash([3 * esp, 2 * esp]); }
       ctx.stroke(); ctx.setLineDash([]);
     }
