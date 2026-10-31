@@ -98,6 +98,7 @@ textarea { resize: vertical; line-height: 1.45; }
 .opcao small { color: var(--muted); }
 .check { display: inline-flex; gap: 8px; align-items: center; font-weight: 400; color: var(--ink); cursor: pointer; }
 .check input { width: 18px; height: 18px; accent-color: var(--accent); }
+.outros-campos { display: flex; flex-wrap: wrap; gap: 8px 20px; padding-top: 2px; }
 .cab-opcional { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
 .cab-opcional .check { font-size: .85rem; color: var(--muted); }
 .opcional.desligado input[type=text], .opcional.desligado textarea { opacity: .45; text-decoration: line-through; }
@@ -264,7 +265,7 @@ td.resp { font-family: var(--f-mono); font-size: .82rem; color: var(--muted); }
 <main class="wrap" id="main"></main>
 <div class="painel-fundo" id="painelFundo" hidden><aside class="painel" id="painel" role="dialog" aria-modal="true"></aside></div>
 <div class="ampliada" id="ampliada" role="dialog" aria-modal="true" aria-label="Folha corrigida" hidden>
-  <div class="ampliada-cab"><h2>Folha corrigida</h2><button class="btn peq" data-acao="zoom-ampliada">Aproximar / afastar</button><button class="btn peq" data-acao="fechar-ampliada">Fechar</button></div>
+  <div class="ampliada-cab"><h2>Folha corrigida</h2><button class="btn peq" data-acao="zoom-ampliada">Aproximar / afastar</button><button class="btn peq perigo" data-acao="excluir-leitura" data-res="">Excluir leitura</button><button class="btn peq" data-acao="fechar-ampliada">Fechar</button></div>
   <div class="ampliada-legenda"><span><i style="border-color:#16a34a"></i>marcou certo</span><span><i style="border-color:#dc2626"></i>marcou errado</span><span><i style="border-color:#16a34a;border-style:dashed"></i>resposta certa</span><span><i style="border-color:#e08a00"></i>mais de uma marcação</span></div>
   <div class="zoom" data-acao="zoom-ampliada"><img alt="Folha corrigida ampliada"></div>
 </div>

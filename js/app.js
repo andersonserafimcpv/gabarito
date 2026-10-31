@@ -337,6 +337,7 @@ function telaFolhas() {
             ${listaTimbrados().map((t) => `<button type="button" class="timb-op" role="radio" aria-checked="${av.timbradoId === t.id}" data-acao="usar-timbrado" data-id="${t.id}"><img src="${esc(t.img)}" alt="">${esc(t.nome)}</button>`).join("")}
             <button type="button" class="timb-op add" data-acao="add-timbrado">+ Adicionar timbrado</button>
           </div>
+          ${timbradoDaAv(av) ? `<button type="button" class="btn peq perigo" data-acao="excluir-timbrado" data-id="${av.timbradoId}" style="justify-self:start;margin-top:8px">Excluir o timbrado "${esc(timbradoDaAv(av).nome)}"</button>` : ""}
           ${avisoRegrasTimbrado()}
         </div>
         <div>
@@ -397,12 +398,20 @@ function cartaoLeitura(l) {
         <div style="min-width:0"><h3>${titulo}</h3><small class="muted">${esc(av.titulo)} · ${esc(turma ? turma.nome : "sem turma")}${r.ra ? " · R.A. " + esc(r.ra) : ""}</small></div>
         <div style="text-align:right"><div class="nota-grande">${fmt(nota)}</div><small class="muted">de ${fmt(total)} · ${ac} certa${ac !== 1 ? "s" : ""}, ${er} errada${er !== 1 ? "s" : ""}</small></div>
       </div>
-      <div class="meta" style="display:flex;gap:6px;flex-wrap:wrap"><span class="chip ok">Salvo nas notas</span>${+av.versoes > 1 ? `<span class="chip acc">Versão ${esc(r.versao || "A")}</span>` : ""}${l.substituiu ? `<span class="chip warn">Substituiu leitura anterior</span>` : ""}${l.aviso ? `<span class="chip warn">${esc(l.aviso)}</span>` : ""}${brancos ? `<span class="chip warn">${brancos} em branco</span>` : ""}${duplas ? `<span class="chip bad">${duplas} com marcação dupla</span>` : ""}</div>
+      <div class="meta" style="display:flex;gap:6px;flex-wrap:wrap"><span class="chip ok">Salvo nas notas</span>${+av.versoes > 1 ? `<span class="chip acc">Versão ${esc(r.versao || "A")}</span>` : ""}${chipLingua(r)}${l.substituiu ? `<span class="chip warn">Substituiu leitura anterior</span>` : ""}${l.aviso ? `<span class="chip warn">${esc(l.aviso)}</span>` : ""}${brancos ? `<span class="chip warn">${brancos} em branco</span>` : ""}${duplas ? `<span class="chip bad">${duplas} com marcação dupla</span>` : ""}</div>
       ${!r.alunoId && turma ? `<label class="campo"><span>Vincular a um aluno <small>(opcional)</small></span><select data-muda="vincular" data-res="${r.id}"><option value="">Não vincular</option>${(turma.alunos || []).map((a) => `<option value="${a.id}">${String(a.num).padStart(2, "0")} · ${esc(a.nome)}</option>`).join("")}</select></label>` : ""}
       <details><summary class="muted" style="cursor:pointer">Conferir e corrigir respostas</summary><div style="margin-top:10px">${gradeRespostas(av, r)}</div></details>
+      <div><button class="btn peq perigo" data-acao="excluir-leitura" data-res="${r.id}">Excluir esta leitura</button></div>
     </div></div></div>`;
 }
 
+function chipLingua(r) {
+  if (r.lingua == null) return "";
+  if (r.lingua === "*") return `<span class="chip bad">Marcou as duas línguas</span>`;
+  return r.lingua ? `<span class="chip acc">${esc(r.lingua)}</span>` : `<span class="chip warn">Língua em branco</span>`;
+}
+const temLingua = (av) => !!av.comLingua || resultadosDe(av.id).some((r) => r.lingua != null);
+const textoLingua = (r) => (!r || r.lingua == null ? "" : r.lingua === "*" ? "Duas marcadas" : r.lingua || "Em branco");
 const classeResp = (v, k) => (v === "*" ? "warn" : !k || k === "-" ? "" : k === "X" || v === k ? "ok" : v === "-" ? "" : "bad");
 function gradeRespostas(av, r) {
   const g = gabDe(av, r.versao), Q = infoQ(av);
@@ -440,7 +449,7 @@ function telaNotas() {
     return vale.filter((l) => { const k = gabDe(av, l.r.versao)[q]; return k === "X" || l.r.respostas[q] === k; }).length / vale.length;
   });
   const valeProva = corrigir(av, "", "A").total;
-  const multiVer = +av.versoes > 1;
+  const multiVer = +av.versoes > 1, comLingua = temLingua(av);
   const nuvem = Nuvem.modo === "nuvem";
   return `<div class="cab"><div><h2>Notas</h2><p>Atualiza sozinha a cada folha lida, em qualquer aparelho conectado à sua conta. Toque numa linha para conferir ou lançar respostas à mão.</p></div>
     <div class="acoes"><button class="btn" data-acao="exp-xlsx">Excel</button>${nuvem ? `<button class="btn" data-acao="exp-sheets">Google Planilhas</button>` : ""}<button class="btn" data-acao="copiar-tabela">Copiar tabela</button></div></div>
@@ -454,11 +463,11 @@ function telaNotas() {
       <div><b>${notas.length ? fmt(Math.min(...notas)) : "–"}</b><span>menor nota</span></div>
     </div>
     ${lidas.length ? `<div class="bloco" style="margin-bottom:14px"><h3>Acertos por questão</h3><div class="barras">${porQ.map((p, q) => `<div class="barra" title="Questão ${q + 1}: ${p == null ? "sem gabarito" : Math.round(p * 100) + "% de acerto"}"><i style="--p:${p == null ? 0 : Math.round(p * 100)}%;--c:${p == null ? "var(--line)" : p < 0.4 ? "var(--bad)" : p < 0.7 ? "var(--warn)" : "var(--ok)"}"></i>${q + 1}</div>`).join("")}</div></div>` : ""}
-    <div class="tabela-wrap"><table><thead><tr><th>Turma</th><th>Nº</th><th>Aluno</th><th>R.A.</th>${multiVer ? "<th>Versão</th>" : ""}<th class="num">Certas</th><th class="num">Erradas</th><th class="num">Nota</th><th>Lida em</th><th>Respostas</th></tr></thead><tbody>
+    <div class="tabela-wrap"><table><thead><tr><th>Turma</th><th>Nº</th><th>Aluno</th><th>R.A.</th>${multiVer ? "<th>Versão</th>" : ""}${comLingua ? "<th>Língua</th>" : ""}<th class="num">Certas</th><th class="num">Erradas</th><th class="num">Nota</th><th>Lida em</th><th>Respostas</th></tr></thead><tbody>
     ${linhas.map((l) => `<tr data-acao="abrir-res" data-av="${av.id}" data-turma="${l.turma ? l.turma.id : ""}" data-aluno="${l.aluno ? l.aluno.id : ""}" data-res="${l.r ? l.r.id : ""}">
       <td>${esc(l.turma ? l.turma.nome : "—")}</td><td class="num">${l.aluno ? String(l.aluno.num).padStart(2, "0") : l.r && l.r.seq ? "#" + l.r.seq : ""}</td>
       <td>${l.aluno ? esc(l.aluno.nome) : `<em>Folha neutra${l.r.nome ? " · " + esc(l.r.nome) : ""}</em>`}</td><td class="mono">${esc(l.aluno ? l.aluno.ra : "")}</td>
-      ${multiVer ? `<td>${l.r ? esc(l.r.versao || "A") : ""}</td>` : ""}
+      ${multiVer ? `<td>${l.r ? esc(l.r.versao || "A") : ""}</td>` : ""}${comLingua ? `<td>${esc(textoLingua(l.r))}</td>` : ""}
       <td class="num">${l.r ? `${l.c.ac}/${l.c.tot}` : ""}</td><td class="num">${l.r ? l.c.er : ""}</td><td class="num nota">${l.r ? fmt(l.c.nota) : `<span class="chip">pendente</span>`}</td>
       <td>${l.r ? dataCurta(l.r.lidoEm) : ""}</td><td class="resp">${l.r ? esc(l.r.respostas) : ""}</td></tr>`).join("") || `<tr><td colspan="10" class="muted">Nenhum aluno nesta seleção.</td></tr>`}
     </tbody></table></div>`;
@@ -725,10 +734,15 @@ function painelAvaliacao(av0) {
       <div class="grade-campos">
         <label class="campo" style="grid-column:1/-1"><span>Título</span><input type="text" id="avTitulo" value="${esc(av.titulo)}" placeholder="Ex.: AVALIA II - 2026"></label>
         <label class="campo"><span>Disciplina</span><input type="text" id="avComp" value="${esc(av.componente)}" placeholder="Ex.: Ciências"></label>
-        <label class="campo"><span>Professor(a)</span><input type="text" id="avProf" value="${esc(av.professor)}" placeholder="Nome que sai no cabeçalho"></label>
+        ${campoOpcional("Professor(a)", "avProf", "semProfessor", av, `<input type="text" id="avProf" value="${esc(av.professor)}" placeholder="Nome que sai no cabeçalho" aria-label="Professor(a)">`)}
         ${campoOpcional("Turno", "avTurno", "semTurno", av, `<input type="text" id="avTurno" value="${esc(av.turno)}" placeholder="Ex.: Manhã" aria-label="Turno">`)}
+        ${campoOpcional("Dia de prova", "avDiaProva", "comDiaProva", av, `<input type="text" id="avDiaProva" value="${esc(av.diaProva)}" placeholder="Ex.: 1º dia (simulado Enem)" aria-label="Dia de prova">`)}
         ${campoOpcional("Conteúdo vivenciado", "avConteudo", "semConteudo", av, `<input type="text" id="avConteudo" value="${esc(av.conteudo)}" placeholder="Em branco fica o espaço para escrever" aria-label="Conteúdo vivenciado">`, true)}
         ${campoOpcional("Metodologia aplicada", "avMetodo", "semMetodologia", av, `<textarea id="avMetodo" rows="2" aria-label="Metodologia aplicada">${esc(metodologiaDe(av))}</textarea>`, true)}
+        <div class="campo" style="grid-column:1/-1"><span>Outros campos na folha</span><div class="outros-campos">
+          ${[["semInstituicao", "Nome da instituição <small class=\"muted\">(1ª linha do cabeçalho)</small>"], ["semData", "Data"], ["semTurma", "Turma"], ["comNascimento", "Data de nascimento"], ["comAssinatura", "Assinatura do(a) aluno(a)"], ["comLingua", "Língua estrangeira <small class=\"muted\">(o aluno pinta Inglês ou Espanhol; a câmera lê)</small>"]]
+            .map(([k, rot]) => `<label class="check"><input type="checkbox" class="naFolha" data-chave="${k}" ${naFolha(av, k) ? "checked" : ""}> ${rot}</label>`).join("")}
+        </div></div>
       </div>
       <fieldset style="border:0;padding:0;margin:0;display:grid;gap:8px"><legend class="campo" style="margin-bottom:6px;font-weight:700;color:var(--muted);font-size:.9rem">Tipo de folha</legend>
         <div class="opcoes-tipo">
@@ -850,8 +864,10 @@ function ajustarSecoes() {
   });
 }
 /* Campo do cabeçalho com a caixinha "Na folha" para incluir ou tirar da folha impressa */
+// "sem..." sai na folha até ser desligado; "com..." só sai quando ligado
+const naFolha = (av, chave) => (chave.startsWith("com") ? !!av[chave] : !av[chave]);
 function campoOpcional(rotulo, id, chave, av, controle, largo) {
-  const ligado = !av[chave];
+  const ligado = naFolha(av, chave);
   return `<div class="campo opcional${ligado ? "" : " desligado"}"${largo ? ' style="grid-column:1/-1"' : ""}>
     <span class="cab-opcional">${rotulo}<label class="check"><input type="checkbox" class="naFolha" data-chave="${chave}" data-alvo="${id}" data-muda="av-nafolha" ${ligado ? "checked" : ""}> Na folha</label></span>
     ${controle}</div>`;
@@ -868,7 +884,8 @@ function salvarAvaliacao() {
     ...av,
     titulo: $("#avTitulo").value.trim(), componente: $("#avComp").value.trim(), professor: $("#avProf").value.trim(), turno: $("#avTurno").value.trim(),
     conteudo: $("#avConteudo").value.trim(), metodologia: $("#avMetodo").value.trim(),
-    ...Object.fromEntries([...document.querySelectorAll(".naFolha")].map((c) => [c.dataset.chave, !c.checked])),
+    diaProva: $("#avDiaProva").value.trim(),
+    ...Object.fromEntries([...document.querySelectorAll(".naFolha")].map((c) => [c.dataset.chave, c.dataset.chave.startsWith("com") ? c.checked : !c.checked])),
     tipo: document.querySelector("input[name=avTipo]:checked").value,
     secoes: p.secs.map((s) => ({ nome: s.nome.trim(), tipo: s.tipo, n: s.n, certo: s.certo, errado: s.errado })),
     versoes: nv, gabaritos, anulaErrada: $("#avAnula").checked, pontoPorQuestao: ppq, pontos,
@@ -900,6 +917,7 @@ function painelResultado(avId, turmaId, alunoId, resId) {
       <div class="resumo"><div><b id="resNota">${fmt(c.nota)}</b><span>nota (de ${fmt(c.total)})</span></div><div><b id="resAc">${c.ac}/${c.tot}</b><span>certas</span></div><div><b id="resEr">${c.er}</b><span>erradas</span></div></div>
       ${r.imagem ? `<button type="button" class="btn" data-acao="ver-folha" data-res="${r.id}" style="justify-self:start">Ver folha corrigida</button>` : ""}
       ${+av.versoes > 1 ? `<label class="campo" style="max-width:220px"><span>Versão da prova</span><select data-muda="ver-painel">${VERSOES.slice(0, av.versoes).split("").map((v) => `<option value="${v}" ${(r.versao || "A") === v ? "selected" : ""}>Versão ${v}</option>`).join("")}</select></label>` : ""}
+      ${av.comLingua || r.lingua != null ? `<label class="campo" style="max-width:220px"><span>Língua estrangeira</span><select data-muda="lingua-painel">${[["", "Em branco"], ...LINGUAS.map((x) => [x, x]), ["*", "Duas marcadas"]].map(([v, n]) => `<option value="${v}" ${(r.lingua || "") === v ? "selected" : ""}>${n}</option>`).join("")}</select></label>` : ""}
       ${!r.alunoId ? `<label class="campo"><span>Nome <small>(opcional)</small></span><input type="text" id="resNome" value="${esc(r.nome || "")}"></label>` : ""}
       <div id="resGrade">${gradeRespostas(av, r).replaceAll('data-muda="resp"', 'data-muda="resp-painel"')}</div>
     </div>
@@ -945,6 +963,7 @@ async function processarCanvas(canvas, arquivo) {
     res = { id: `${av.id}__n__${novoId()}`, avaliacaoId: av.id, turmaId: info.turmaId, alunoId: null, nome: "", seq, respostas, versao, imagem, lidoEm: agora(), origem: "leitura", tipo: "neutra" };
     if (L.numero != null) res.numLido = L.numero;
   }
+  if (info.L.lingua) res.lingua = L.lingua || "";
   await Nuvem.put("resultados", res.id, res);
   return { resId: res.id, res, previa, substituiu, arquivo, aviso, pts: L.pts };
 }
@@ -1064,14 +1083,15 @@ function fecharCamera() {
 
 /* ===================== Exportação ===================== */
 function tabelaNotas(av, turmaId) {
-  const n = totalQ(av), multiVer = +av.versoes > 1;
-  const cab = ["Turma", "Nº", "R.A.", "Aluno", ...(multiVer ? ["Versão"] : []), "Certas", "Erradas", "Questões válidas", "Nota", "Valor da prova", "Situação", "Lida em", ...Array.from({ length: n }, (_, i) => "Q" + (i + 1))];
+  const n = totalQ(av), multiVer = +av.versoes > 1, comLingua = temLingua(av);
+  const cab = ["Turma", "Nº", "R.A.", "Aluno", ...(multiVer ? ["Versão"] : []), ...(comLingua ? ["Língua estrangeira"] : []), "Certas", "Erradas", "Questões válidas", "Nota", "Valor da prova", "Situação", "Lida em", ...Array.from({ length: n }, (_, i) => "Q" + (i + 1))];
   const linhas = linhasNotas(av, turmaId).map((l) => [
     l.turma ? l.turma.nome : "",
     l.aluno ? l.aluno.num : l.r && l.r.seq ? "#" + l.r.seq : "",
     l.aluno ? l.aluno.ra || "" : "",
     l.aluno ? l.aluno.nome : "Folha neutra" + (l.r.nome ? " · " + l.r.nome : ""),
     ...(multiVer ? [l.r ? l.r.versao || "A" : ""] : []),
+    ...(comLingua ? [textoLingua(l.r)] : []),
     l.r ? l.c.ac : "", l.r ? l.c.er : "", l.r ? l.c.tot : "", l.r ? Math.round(l.c.nota * 100) / 100 : "", l.r ? l.c.total : "",
     l.r ? "Corrigida" : "Pendente", l.r ? dataCurta(l.r.lidoEm) : "",
     ...Array.from({ length: n }, (_, q) => (l.r ? (l.r.respostas[q] || "-").replace("*", "2+").replace("-", "") : "")),
@@ -1275,9 +1295,19 @@ const acoes = {
     caixa.querySelector("img").src = src;
     caixa.querySelector(".zoom").classList.remove("grande");
     caixa.querySelector("h2").textContent = r ? (r.alunoId ? r.nome : "Folha neutra" + (r.seq ? " nº " + r.seq : "")) : "Folha corrigida";
+    const exc = caixa.querySelector("[data-acao=excluir-leitura]");
+    exc.dataset.res = el.dataset.res; exc.hidden = !S.resultados[el.dataset.res];
     caixa.hidden = false;
     document.body.style.overflow = "hidden";
   },
+  "excluir-leitura": (el) => armar(el, () => {
+    const id = el.dataset.res;
+    Nuvem.del("resultados", id);
+    ui.leituras = ui.leituras.filter((l) => l.resId !== id);
+    if (!$("#ampliada").hidden) acoes["fechar-ampliada"]();
+    if (painelAtual && painelAtual.r && painelAtual.r.id === id) fecharPainel();
+    render(); toast("Leitura excluída. A nota saiu da planilha.");
+  }),
   "fechar-ampliada": () => { $("#ampliada").hidden = true; document.body.style.overflow = painelAtual ? "hidden" : ""; },
   "zoom-ampliada": () => $("#ampliada .zoom").classList.toggle("grande"),
   "salvar-timbrado": () => {
@@ -1341,6 +1371,8 @@ document.addEventListener("change", (e) => {
     const arr = (r.respostas + "-".repeat(n)).split(""); arr[+el.dataset.q] = el.value; r.respostas = arr.join("").slice(0, Math.max(n, r.respostas.length)); r._editado = true;
     atualizarPainelResultado();
     el.parentElement.className = "rq " + classeResp(el.value, gabDe(av, r.versao)[+el.dataset.q]);
+  } else if (m === "lingua-painel") {
+    painelAtual.r.lingua = el.value; painelAtual.r._editado = true;
   } else if (m === "ver-painel") {
     const { r, av } = painelAtual;
     r.versao = el.value; r._editado = true;

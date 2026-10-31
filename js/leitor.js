@@ -262,10 +262,20 @@ function lerBolinhas(amostra, geo) {
     if (dig[0] >= 0 && dig[1] >= 0) numero = dig[0] * 10 + dig[1];
     else if (dig[0] === -1 && dig[1] >= 0) numero = dig[1];
   }
-  return { resp, fills, numero };
+  // língua estrangeira: "Inglês", "Espanhol", "" (em branco) ou "*" (as duas marcadas)
+  let lingua = null;
+  if (geo.lingua) {
+    const [x0, y0] = geo.linguaPos(0), [, y1] = geo.linguaPos(1), c = LINGUA.caixa;
+    const brancos = [mediaDisco(amostra, x0, (y0 + y1) / 2, 0.25), mediaDisco(amostra, c.x + c.w - 3, y0, 0.25), mediaDisco(amostra, c.x + c.w - 3, y1, 0.25), mediaDisco(amostra, x0 - 4, (y0 + y1) / 2, 0.25)];
+    brancos.sort((a, b) => b - a);
+    const branco = brancos[1], faixa = Math.max(40, branco - preto);
+    const d = decidir(LINGUAS.map((_, i) => { const [cx, cy] = geo.linguaPos(i); return preenchimento(amostra, cx, cy, LINGUA.r, branco, faixa); }));
+    lingua = d === -1 ? "" : d === -2 ? "*" : LINGUAS[d];
+  }
+  return { resp, fills, numero, lingua };
 }
 
-/* Entrada: um canvas (foto ou quadro de vídeo). Saída: { codigo, info, resp, fills, numero, H, geo, pts }.
+/* Entrada: um canvas (foto ou quadro de vídeo). Saída: { codigo, info, resp, fills, numero, lingua, H, geo, pts }.
    Em caso de erro, ErroLeitura traz .marcas (quadrados encontrados, em pixels do canvas) para a câmera mostrar. */
 function lerFolha(canvas) {
   const w = canvas.width, h = canvas.height;
@@ -310,8 +320,8 @@ function lerFolha(canvas) {
   const info = lerCodigoQR(codigo);
   const geo = geometria(info.L);
   const amostra = amostrador(g, w, h, H);
-  const { resp, fills, numero } = lerBolinhas(amostra, geo);
-  return { codigo, info, resp, fills, numero, H, geo, pts };
+  const { resp, fills, numero, lingua } = lerBolinhas(amostra, geo);
+  return { codigo, info, resp, fills, numero, lingua, H, geo, pts };
 }
 
 /* Desenha uma prévia reduzida com as marcações reconhecidas */
@@ -346,6 +356,13 @@ function previaLeitura(canvas, leitura, gabarito, largura = 520) {
       else { ctx.strokeStyle = "rgba(22,163,74,.6)"; ctx.lineWidth = 1.2 * esp; ctx.setLineDash([3 * esp, 2 * esp]); }
       ctx.stroke(); ctx.setLineDash([]);
     }
+  }
+  // língua escolhida, em azul
+  const iL = LINGUAS.indexOf(leitura.lingua);
+  if (geo.lingua && iL >= 0) {
+    const [X, Y] = geo.linguaPos(iL), [x, y] = H(X, Y), [x2] = H(X + LINGUA.r, Y);
+    ctx.beginPath(); ctx.arc(x * k, y * k, Math.max(3 * esp, Math.abs(x2 - x) * k + 1.5 * esp), 0, Math.PI * 2);
+    ctx.strokeStyle = "#2f6fed"; ctx.lineWidth = 2.5 * esp; ctx.stroke();
   }
   return cv;
 }

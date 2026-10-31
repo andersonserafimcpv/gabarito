@@ -10,6 +10,9 @@ const QR = { x: 23, y: 111.5, lado: 22 };
 /* Posições do cabeçalho (mm), usadas no PDF e no Word */
 const CAB = { campos: [33, 41.3, 49.6], hCampo: 6.8, conteudo: { y: 58.4, h: 8 }, metodo: { y: 68, h: 8 }, linha: { y: 77.6, h: 26 } };
 const LETRAS = "ABCDE";
+// Língua estrangeira: duas bolinhas no canto superior direito da moldura (Inglês em cima, Espanhol embaixo)
+const LINGUAS = ["Inglês", "Espanhol"];
+const LINGUA = { x: 154, y: 122.5, passo: 7, r: 2.3, caixa: { x: 148, y: 111.5, w: 41, h: 22 } };
 const VERSOES = "ABCD";
 // Tipos de questão: número de alternativas (2 a 5) ou C = Certo/Errado
 const TIPOS = [["2", "A e B"], ["3", "A a C"], ["4", "A a D"], ["5", "A a E"], ["C", "Certo / Errado"]];
@@ -24,15 +27,16 @@ function layoutDe(av) {
     trans: !!av.transcricao,
     num: av.tipo === "neutra" && !!av.numChamada,
     cols: [1, 2, 3].includes(+av.colunas) ? +av.colunas : 0,   // 0 = automático
+    lingua: !!av.comLingua,
   };
 }
-const layoutStr = (L) => L.secs.map((s) => s.t + "-" + s.n).join("_") + "~" + (L.trans ? "t" : "") + (L.num ? "n" : "") + (L.cols ? L.cols : "");
+const layoutStr = (L) => L.secs.map((s) => s.t + "-" + s.n).join("_") + "~" + (L.trans ? "t" : "") + (L.num ? "n" : "") + (L.lingua ? "l" : "") + (L.cols ? L.cols : "");
 function parseLayout(s) {
   const [a, f = ""] = String(s).split("~");
   const secs = a.split("_").map((x) => { const [t, n] = x.split("-"); return { t, n: +n }; });
   if (!secs.length || secs.some((x) => !/^[2-5C]$/.test(x.t) || !(x.n > 0))) return null;
   const c = /[1-3]/.exec(f);
-  return { secs, trans: f.includes("t"), num: f.includes("n"), cols: c ? +c[0] : 0 };
+  return { secs, trans: f.includes("t"), num: f.includes("n"), lingua: f.includes("l"), cols: c ? +c[0] : 0 };
 }
 
 /* Geometria das questões dentro da moldura (em mm na folha), a partir do layout */
@@ -75,6 +79,8 @@ function geometria(L) {
     xy,
     pos(q, a) { const [x, yy] = xy(slotDe[q]); return [x + lab + (a + 0.5) * px, yy]; },
     numPos(lin, d) { return [72 + d * 7.2, 118 + lin * 8.5]; },
+    lingua: !!L.lingua,
+    linguaPos(i) { return [LINGUA.x, LINGUA.y + i * LINGUA.passo]; },
   };
 }
 
@@ -135,17 +141,46 @@ const INSTRUCOES_PADRAO = [
 ];
 const METODOLOGIA_PADRAO = "AULAS EXPOSITIVAS; RESOLUÇÃO DE EXERCÍCIOS; ATIVIDADES SISTEMÁTICAS;";
 const metodologiaDe = (av) => (av.metodologia != null && String(av.metodologia).trim() !== "" ? av.metodologia : METODOLOGIA_PADRAO);
-/* Campos opcionais do cabeçalho (turno, conteúdo vivenciado, metodologia) e a posição da linha Instruções | Exemplo | Nota,
-   que sobe quando as faixas saem. A moldura do gabarito não muda de lugar. */
-function cabecalhoDe(av) {
-  const turno = !av.semTurno;
+/* Cabeçalho da folha: campos que entram (cada um pode ser ligado ou desligado na avaliação), suas larguras
+   e a posição das faixas e da linha Instruções | Exemplo | Nota, que sobe quando sobra espaço.
+   A moldura do gabarito nunca muda de lugar. */
+const PASSO_CAMPO = 8.3, FIM_CABECALHO = CAB.linha.y + CAB.linha.h;
+function cabecalhoDe(av, turma, aluno, ver) {
+  const tem = {
+    instituicao: !av.semInstituicao, data: !av.semData, turma: !av.semTurma, professor: !av.semProfessor, turno: !av.semTurno,
+    nascimento: !!av.comNascimento, diaProva: !!av.comDiaProva, assinatura: !!av.comAssinatura, lingua: !!av.comLingua,
+  };
   const conteudo = !av.transcricao && !av.semConteudo, metodo = !av.transcricao && !av.semMetodologia;
-  let y = CAB.conteudo.y;
-  if (av.transcricao) y = CAB.linha.y;
-  else { if (conteudo) y += CAB.conteudo.h + 1.6; if (metodo) y += CAB.metodo.h + 1.6; }
-  const fim = CAB.linha.y + CAB.linha.h;
-  return { turno, conteudo, metodo, conteudoY: CAB.conteudo.y, metodoY: conteudo ? CAB.metodo.y : CAB.conteudo.y, linhaY: y, linhaH: Math.min(34, fim - y) };
+  const turno = av.turno || (turma && turma.turno) || "";
+  const linhas = [
+    [{ rot: "Aluno(a):", valor: aluno ? aluno.nome : "", peso: 158, negrito: true },
+      { rot: "Nº:", valor: aluno && aluno.num ? String(aluno.num).padStart(2, "0") : "", fixo: 28, negrito: true }],
+    [tem.data && { rot: "Data:", valor: "____/____/" + new Date().getFullYear(), peso: 52, tam: 8.5, cinza: true },
+      tem.nascimento && { rot: "Nascimento:", valor: "____/____/____", peso: 56, tam: 8.5, cinza: true },
+      { rot: "Disciplina:", valor: av.componente || "", peso: 78 },
+      tem.turma && { rot: "Turma:", valor: turma ? turma.nome : "", peso: 54 }],
+    [tem.professor && { rot: "Professor(a):", valor: av.professor || "", peso: 118 },
+      tem.turno && { rot: "Turno:", valor: turno, peso: 36 },
+      tem.diaProva && { rot: "Dia de prova:", valor: av.diaProva || "", peso: 42 },
+      Math.max(1, +av.versoes || 1) > 1 && { rot: "Versão:", valor: ver || "A", fixo: 30, tam: 10.5, negrito: true }],
+  ].map((l) => l.filter(Boolean)).filter((l) => l.length);
+  let y = CAB.campos[0] + (linhas.length - 1) * PASSO_CAMPO + CAB.hCampo + 2;
+  const pos = {};
+  if (av.transcricao) { pos.transY = y; y += CAB.metodo.y + CAB.metodo.h - CAB.conteudo.y + 1.6; }
+  else {
+    if (conteudo) { pos.conteudoY = y; y += CAB.conteudo.h + 1.6; }
+    if (metodo) { pos.metodoY = y; y += CAB.metodo.h + 1.6; }
+  }
+  return { tem, conteudo, metodo, linhas, ...pos, linhaY: y, linhaH: Math.min(34, FIM_CABECALHO - y) };
 }
+/* Larguras dos campos de uma linha: os "fixo" mantêm a medida, os demais dividem o resto pelo peso */
+function largurasLinha(linha, total, vao) {
+  const livre = total - vao * (linha.length - 1) - linha.reduce((s, c) => s + (c.fixo || 0), 0);
+  const pesos = linha.reduce((s, c) => s + (c.fixo ? 0 : c.peso), 0);
+  return linha.map((c) => c.fixo || (livre * c.peso) / pesos);
+}
+// Linha de assinatura abaixo da moldura (baseline do texto, em mm)
+const ASSINATURA = { y: 277 };
 const CABECALHO_PADRAO = { instituicao: "SERVIÇO SOCIAL DA INDÚSTRIA - SESI – DR PERNAMBUCO" };
 
 /* Valor total da prova (soma dos pontos de cada questão) */
@@ -191,7 +226,6 @@ function opsFolha(d) {
   const ops = [];
   const cinzaBorda = "#9a9a9a", cinzaFundo = "#efefef", tinta = "#111111", borda = "#b8b8b8";
   const L = (o) => ops.push(o);
-  const versoes = Math.max(1, +av.versoes || 1);
   const X0 = 11, LARG = 188;
 
   // Papel timbrado ao fundo (página inteira ou faixa no topo)
@@ -219,22 +253,16 @@ function opsFolha(d) {
   const instituicao = (perfil.instituicao != null && perfil.instituicao !== "" ? perfil.instituicao : CABECALHO_PADRAO.instituicao).toUpperCase();
   const comLogo = perfil.logo && !(timbrado && timbrado.img);
   const largTit = comLogo ? 146 : LARG;
-  L({ t: "text", s: instituicao, x: X0, y: 22.6, size: 9, bold: true, color: "#222222", maxW: largTit });
-  if (perfil.escola) L({ t: "text", s: perfil.escola.toUpperCase(), x: X0, y: 26.6, size: 9, bold: true, color: "#222222", maxW: largTit });
+  const cab = cabecalhoDe(av, turma, aluno, ver);
+  const titulos = [cab.tem.instituicao && instituicao, perfil.escola && perfil.escola.toUpperCase()].filter(Boolean);
+  titulos.forEach((t, i) => L({ t: "text", s: t, x: X0, y: 30.8 - (titulos.length - i) * 4.1, size: 9, bold: true, color: "#222222", maxW: largTit }));
   L({ t: "text", s: ("FOLHA DE RESPOSTAS" + (av.titulo ? " · " + av.titulo : "")).toUpperCase(), x: X0, y: 30.8, size: 8.5, bold: true, color: "#666666", maxW: largTit });
   if (comLogo) L({ t: "img", src: perfil.logo, x: 160, y: 19, w: 39, h: 13 });
 
-  campo(X0, 33, 158, 6.8, "Aluno(a):", aluno ? aluno.nome : "", 9.5, true);
-  campo(171, 33, 28, 6.8, "Nº:", aluno && aluno.num ? String(aluno.num).padStart(2, "0") : "", 9.5, true);
-  campo(X0, 41.3, 52, 6.8, "Data:", "______/______/" + new Date().getFullYear(), 8.5, false, true);
-  campo(65, 41.3, 78, 6.8, "Disciplina:", av.componente || "");
-  campo(145, 41.3, 54, 6.8, "Turma:", turma ? turma.nome : "");
-  const turno = av.turno || (turma && turma.turno) || "";
-  const cab = cabecalhoDe(av);
-  const xVer = versoes > 1 ? 169 : 201, xTurno = cab.turno ? (versoes > 1 ? 131 : 145) : xVer;
-  campo(X0, 49.6, xTurno - 2 - X0, 6.8, "Professor(a):", av.professor || "");
-  if (cab.turno) campo(xTurno, 49.6, xVer - 2 - xTurno, 6.8, "Turno:", turno);
-  if (versoes > 1) campo(169, 49.6, 30, 6.8, "Versão:", ver, 10.5, true);
+  cab.linhas.forEach((linha, li) => {
+    let x = X0;
+    largurasLinha(linha, LARG, 2).forEach((w, k) => { const c = linha[k]; campo(x, CAB.campos[0] + li * PASSO_CAMPO, w, CAB.hCampo, c.rot, c.valor, c.tam, c.negrito, c.cinza); x += w + 2; });
+  });
 
   // Conteúdo vivenciado e metodologia (faixas finas) ou quadro de transcrição
   const faixa = (y, h, rot1, rot2, texto) => {
@@ -246,7 +274,7 @@ function opsFolha(d) {
     if (texto) quebrarTexto(texto, 7.5, LARG - 32).slice(0, 2).forEach((ln, i, arr) => L({ t: "text", s: ln, x: X0 + 30.5, y: y + (arr.length > 1 ? h / 2 - 0.6 + i * 3.2 : h / 2 + 1.2), size: 7.5, color: tinta }));
   };
   if (g.L.trans) {
-    const y = CAB.conteudo.y, h = CAB.metodo.y + CAB.metodo.h - y;
+    const y = cab.transY, h = CAB.metodo.y + CAB.metodo.h - CAB.conteudo.y;
     caixa(X0, y, LARG, h);
     L({ t: "line", x1: 58, y1: y, x2: 58, y2: y + h, color: borda, w: 0.25 });
     const linhas = quebrarTexto((av.transcricaoTexto || "ATENÇÃO: TRANSCREVA AQUI, COM A SUA CALIGRAFIA USUAL, A FRASE APRESENTADA NA CAPA DO SEU CADERNO DE QUESTÕES.").toUpperCase(), 6, 44, true);
@@ -300,9 +328,27 @@ function opsFolha(d) {
   } else {
     L({ t: "text", s: "Folha neutra: escreva seu nome no campo Aluno(a).", x: 92, y: 123, size: 7, color: "#777777", align: "center", maxW: 80 });
   }
-  L({ t: "text", s: "Pinte toda a bolinha com caneta", x: 169, y: 119.5, size: 7, color: "#555555", align: "center" });
-  L({ t: "text", s: "preta ou azul. Uma só por questão.", x: 169, y: 123, size: 7, color: "#555555", align: "center" });
-  if (temCE) L({ t: "text", s: "C = Certo   E = Errado", x: 169, y: 128, size: 7.5, bold: true, color: "#333333", align: "center" });
+  if (g.lingua) {
+    const c = LINGUA.caixa;
+    caixa(c.x, c.y, c.w, c.h);
+    L({ t: "text", s: "LÍNGUA ESTRANGEIRA", x: c.x + 1.8, y: c.y + 3.7, size: 6.5, bold: true, color: "#333333" });
+    LINGUAS.forEach((nome, i) => {
+      const [cx, cy] = g.linguaPos(i);
+      L({ t: "circle", x: cx, y: cy, r: LINGUA.r, stroke: cinzaBorda, lw: 0.25 });
+      L({ t: "text", s: nome, x: cx + 4.5, y: cy + 0.1, size: 8, color: "#333333", mid: true });
+    });
+  } else {
+    L({ t: "text", s: "Pinte toda a bolinha com caneta", x: 169, y: 119.5, size: 7, color: "#555555", align: "center" });
+    L({ t: "text", s: "preta ou azul. Uma só por questão.", x: 169, y: 123, size: 7, color: "#555555", align: "center" });
+    if (temCE) L({ t: "text", s: "C = Certo   E = Errado", x: 169, y: 128, size: 7.5, bold: true, color: "#333333", align: "center" });
+  }
+
+  // Assinatura do aluno, logo abaixo da moldura
+  if (cab.tem.assinatura) {
+    L({ t: "rect", x: X0, y: ASSINATURA.y - 6, w: LARG, h: 9, fill: "#ffffff" });
+    L({ t: "text", s: "Assinatura do(a) aluno(a):", x: X0, y: ASSINATURA.y, size: 8, bold: true, color: "#333333" });
+    L({ t: "line", x1: X0 + 40, y1: ASSINATURA.y + 0.6, x2: X0 + LARG, y2: ASSINATURA.y + 0.6, color: "#555555", w: 0.3 });
+  }
 
   // Grade de respostas
   const secoes = av.secoes || [];
@@ -311,8 +357,6 @@ function opsFolha(d) {
     const xc = g.x0 + c * g.colW - 1.5, wc = g.colW - g.gapC + 3;
     const nLin = Math.min(g.rows, g.slots.length - c * g.rows);
     if (nLin <= 0) continue;
-    L({ t: "rect", x: xc, y: g.top - g.pitch / 2 - 5.6, w: wc, h: 5, fill: cinzaFundo });
-    L({ t: "text", s: wc > 30 ? "Questão | Resposta" : "Q | Resp.", x: xc + wc / 2, y: g.top - g.pitch / 2 - 3.1, size: Math.min(7.5, wc * 0.24), color: "#555555", align: "center", mid: true });
     for (let row = 0; row < nLin; row++) {
       const k = c * g.rows + row, sl = g.slots[k];
       const [, cy] = g.xy(k);
@@ -554,39 +598,38 @@ async function gerarDOCX(folhas, aoProgredir) {
   let exemploFeito = false;
   for (let i = 0; i < folhas.length; i++) {
     const d = folhas[i], { av, perfil = {}, turma, aluno } = d;
-    const ver = d.ver || "A", versoes = Math.max(1, +av.versoes || 1);
-    // desenha a página sem timbrado e recorta a moldura (e, uma vez, a linha de exemplo)
+    const ver = d.ver || "A";
+    const cab = cabecalhoDe(av, turma, aluno, ver);
+    // desenha a página sem timbrado e recorta a moldura (com a assinatura, se houver) e, uma vez, a linha de exemplo
     desenharCanvas(ctx, opsFolha({ ...d, timbrado: null }), s, imgs);
-    zip.file(`word/media/moldura${i + 1}.png`, await recortar(M.x, M.y, M.w, M.h));
+    const hM = cab.tem.assinatura ? ASSINATURA.y + 3 - M.y : M.h;
+    zip.file(`word/media/moldura${i + 1}.png`, await recortar(M.x, M.y, M.w, hM));
     rel(`rIdM${i + 1}`, `moldura${i + 1}.png`);
-    const cab = cabecalhoDe(av);
     if (!exemploFeito) { zip.file("word/media/exemplo.png", await recortar(EXEMPLO.x - 0.3, cab.linhaY + EXEMPLO.dy - 0.3, EXEMPLO.w + 0.6, EXEMPLO.h + 0.6)); rel("rIdEx", "exemplo.png"); exemploFeito = true; }
 
     let ancoras = "";
     if (t0 && t0.img) ancoras += t0.modo === "faixa" ? wImagem("rIdTimb", 210, Math.min(17, 210 * 0.08), { ancora: true, atras: true, x: 0, y: 0 }) : wImagem("rIdTimb", 210, 297, { ancora: true, atras: true, x: 0, y: 0 });
     if (comLogo) { const im = imgs[logo], k = Math.min(39 / im.width, 13 / im.height); ancoras += wImagem("rIdLogo", im.width * k, im.height * k, { ancora: true, x: 199 - im.width * k, y: 19 }); }
-    ancoras += wImagem(`rIdM${i + 1}`, M.w, M.h, { ancora: true, x: M.x, y: M.y });
+    ancoras += wImagem(`rIdM${i + 1}`, M.w, hM, { ancora: true, x: M.x, y: M.y });
 
     const instituicao = (perfil.instituicao != null && perfil.instituicao !== "" ? perfil.instituicao : CABECALHO_PADRAO.instituicao).toUpperCase();
-    corpo += wPar(ancoras + wRun(instituicao, { b: true, pt: 9 }), { quebra: i > 0, linha: 4 });
-    corpo += wPar(wRun((perfil.escola || "").toUpperCase(), { b: true, pt: 9 }), { linha: 4 });
+    // títulos: as linhas que saem viram espaço em branco no fim, para os campos ficarem na mesma altura
+    const titulos = [cab.tem.instituicao && instituicao, perfil.escola && perfil.escola.toUpperCase()].filter(Boolean);
+    corpo += wPar(ancoras + wRun(titulos[0] || "", { b: true, pt: 9 }), { quebra: i > 0, linha: 4 });
+    if (titulos[1]) corpo += wPar(wRun(titulos[1], { b: true, pt: 9 }), { linha: 4 });
     corpo += wPar(wRun(("FOLHA DE RESPOSTAS" + (av.titulo ? " · " + av.titulo : "")).toUpperCase(), { b: true, pt: 8.5, cor: "666666" }), { linha: 4.4 });
-    corpo += wEspaco(1.6);
-    const h = CAB.hCampo, turno = av.turno || (turma && turma.turno) || "";
-    corpo += wTabela([160, 28], [wCelula(160, campoW("Aluno(a):", aluno ? aluno.nome : "", { b: true })), wCelula(28, campoW("Nº:", aluno && aluno.num ? String(aluno.num).padStart(2, "0") : "", { b: true }))], h);
-    corpo += wEspaco(1.5);
-    corpo += wTabela([54, 80, 54], [wCelula(54, campoW("Data:", "____/____/" + new Date().getFullYear(), { cinza: true, pt: 8.5 })), wCelula(80, campoW("Disciplina:", av.componente || "")), wCelula(54, campoW("Turma:", turma ? turma.nome : ""))], h);
-    corpo += wEspaco(1.5);
-    const celVer = versoes > 1 ? [wCelula(30, campoW("Versão:", ver, { b: true, pt: 10.5 }))] : [];
-    const largTurno = cab.turno ? (versoes > 1 ? 38 : 54) : 0, largProf = 188 - largTurno - (versoes > 1 ? 30 : 0);
-    corpo += wTabela([largProf, ...(largTurno ? [largTurno] : []), ...(versoes > 1 ? [30] : [])],
-      [wCelula(largProf, campoW("Professor(a):", av.professor || "")), ...(largTurno ? [wCelula(largTurno, campoW("Turno:", turno))] : []), ...celVer], h);
+    corpo += wEspaco(1.6 + (titulos.length < 2 ? 4 : 0));
+    cab.linhas.forEach((linha, li) => {
+      const ws = largurasLinha(linha, 188, 0);
+      if (li) corpo += wEspaco(PASSO_CAMPO - CAB.hCampo);
+      corpo += wTabela(ws, linha.map((c, k) => wCelula(ws[k], campoW(c.rot, c.valor, { b: c.negrito, pt: c.tam, cinza: c.cinza }))), CAB.hCampo);
+    });
     corpo += wEspaco(2);
     const faixaW = (r1, r2, texto, alt) => wTabela([28, 160], [wCelula(28, wPar(wRun(r1, { b: true, pt: 6.8, cor: "333333" }), { linha: 3 }) + wPar(wRun(r2, { b: true, pt: 6.8, cor: "333333" }), { linha: 3 }), { fundo: "EFEFEF" }), wCelula(160, wPar(wRun(texto || "", { pt: 7.5 }), { linha: 3.3 }))], alt);
     if (av.transcricao) {
       const alt = CAB.metodo.y + CAB.metodo.h - CAB.conteudo.y;
       corpo += wTabela([44, 144], [wCelula(44, wPar(wRun((av.transcricaoTexto || "ATENÇÃO: TRANSCREVA AQUI, COM A SUA CALIGRAFIA USUAL, A FRASE APRESENTADA NA CAPA DO SEU CADERNO DE QUESTÕES.").toUpperCase(), { b: true, pt: 6 }), { linha: 2.6 })), wCelula(144, "")], alt);
-      corpo += wEspaco(CAB.linha.y - CAB.metodo.y - CAB.metodo.h);
+      corpo += wEspaco(1.6);
     } else {
       // cada faixa ocupa sua altura + 1,6 mm de espaço; a última fecha com o espaço até a linha das instruções
       if (cab.conteudo) corpo += faixaW("Conteúdo", "vivenciado", av.conteudo, CAB.conteudo.h) + wEspaco(1.6);
