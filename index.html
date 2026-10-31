@@ -85,7 +85,7 @@ main { padding-block: 24px 80px; }
 .btn.peq { min-height: 34px; padding: 5px 11px; font-size: .9rem; }
 .btn:disabled { opacity: .55; cursor: default; }
 .btn:focus-visible, .etapa:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, .chip:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
-label.campo { display: grid; gap: 5px; font-size: .9rem; font-weight: 700; color: var(--muted); }
+label.campo, div.campo.opcional { display: grid; gap: 5px; font-size: .9rem; font-weight: 700; color: var(--muted); }
 label.campo > span small { font-weight: 400; }
 input[type=text], input[type=number], input[type=search], select, textarea { width: 100%; border: 1px solid var(--line); background: var(--surface); border-radius: 8px; padding: 9px 11px; color: var(--ink); font-weight: 400; min-height: 42px; }
 textarea { resize: vertical; line-height: 1.45; }
@@ -98,6 +98,9 @@ textarea { resize: vertical; line-height: 1.45; }
 .opcao small { color: var(--muted); }
 .check { display: inline-flex; gap: 8px; align-items: center; font-weight: 400; color: var(--ink); cursor: pointer; }
 .check input { width: 18px; height: 18px; accent-color: var(--accent); }
+.cab-opcional { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.cab-opcional .check { font-size: .85rem; color: var(--muted); }
+.opcional.desligado input[type=text], .opcional.desligado textarea { opacity: .45; text-decoration: line-through; }
 
 /* Cartões e listas */
 .lista { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
