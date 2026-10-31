@@ -199,6 +199,7 @@ function normAv(av) {
   };
 }
 const AV = (id) => normAv(S.avaliacoes[id]);
+const LINGUA_FAIXA_PADRAO = [1, 5];
 const totalQ = (av) => av.secoes.reduce((s, x) => s + (+x.n || 0), 0);
 const NOME_TIPO = Object.fromEntries(TIPOS);
 /* Dados de cada questão: seção, letras possíveis e pontos para certo e para errado */
@@ -213,23 +214,44 @@ function infoQ(av) {
   });
   return out;
 }
-const gabDe = (av, ver) => (av.gabaritos && av.gabaritos[ver || "A"]) || "";
+const gabBase = (av, ver) => (av.gabaritos && av.gabaritos[ver || "A"]) || "";
+/* Questões de língua estrangeira (ex.: 1 a 5 no Enem): [início, fim) em índices de 0, ou null */
+function faixaLingua(av) {
+  if (!av || !av.comLingua) return null;
+  const [a, b] = av.linguaQ || LINGUA_FAIXA_PADRAO, n = totalQ(av);
+  const ini = Math.max(1, +a || 1), fim = Math.min(n, +b || 0);
+  return ini <= fim ? [ini - 1, fim] : null;
+}
+/* Gabarito de uma versão. Com língua estrangeira, as questões da faixa seguem a língua do aluno:
+   Inglês usa o gabarito principal, Espanhol o gabarito próprio, e em branco/as duas marcadas viram "?" (não pontuam). */
+function gabDe(av, ver, lingua) {
+  const g = gabBase(av, ver), f = faixaLingua(av);
+  if (!f || lingua == null || lingua === LINGUAS[0]) return g;
+  const n = f[1] - f[0];
+  const sub = lingua === LINGUAS[1] ? ((av.gabaritosEsp || {})[ver || "A"] || "").padEnd(n, "-").slice(0, n) : "?".repeat(n);
+  const base = g.padEnd(f[1], "-");
+  return base.slice(0, f[0]) + sub + base.slice(f[1]);
+}
+const corrigirRes = (av, r) => corrigir(av, r.respostas, r.versao, r.lingua);
 function gabCompleto(av) {
   const n = totalQ(av);
   for (let v = 0; v < (+av.versoes || 1); v++) {
     const g = gabDe(av, VERSOES[v]);
     if (g.length < n || g.slice(0, n).includes("-")) return false;
+    const f = faixaLingua(av);
+    if (f && gabDe(av, VERSOES[v], LINGUAS[1]).slice(f[0], f[1]).includes("-")) return false;
   }
   return true;
 }
 /* Correção: acerto soma os pontos da questão; erro desconta (se configurado); em branco e marcação dupla valem zero */
-function corrigir(av, resp, ver) {
-  const g = gabDe(av, ver), Q = infoQ(av);
+function corrigir(av, resp, ver, lingua) {
+  const g = gabDe(av, ver, lingua), Q = infoQ(av);
   let ac = 0, er = 0, tot = 0, total = 0, pts = 0;
   Q.forEach((x, q) => {
     const k = g[q];
     if (!k || k === "-") return;
     tot++; total += x.certo;
+    if (k === "?") return;   // língua estrangeira não identificada: a questão vale zero até o professor escolher a língua
     const v = (resp || "")[q] || "-";
     if (k === "X" || v === k) { ac++; pts += x.certo; }
     else if (v !== "-" && v !== "*") { er++; pts -= x.errado; }
@@ -387,7 +409,7 @@ function cartaoLeitura(l) {
   const r = S.resultados[l.resId] || l.res;
   const av = AV(r.avaliacaoId);
   if (!av) return "";
-  const { ac, er, nota, total } = corrigir(av, r.respostas, r.versao);
+  const { ac, er, nota, total } = corrigirRes(av, r);
   const turma = S.turmas[r.turmaId];
   const brancos = (r.respostas.match(/-/g) || []).length, duplas = (r.respostas.match(/\*/g) || []).length;
   const titulo = r.alunoId ? `${esc(r.nome)}` : `Folha neutra${r.seq ? " nº " + r.seq : ""}${r.nome ? " · " + esc(r.nome) : ""}`;
@@ -399,6 +421,7 @@ function cartaoLeitura(l) {
         <div style="text-align:right"><div class="nota-grande">${fmt(nota)}</div><small class="muted">de ${fmt(total)} · ${ac} certa${ac !== 1 ? "s" : ""}, ${er} errada${er !== 1 ? "s" : ""}</small></div>
       </div>
       <div class="meta" style="display:flex;gap:6px;flex-wrap:wrap"><span class="chip ok">Salvo nas notas</span>${+av.versoes > 1 ? `<span class="chip acc">Versão ${esc(r.versao || "A")}</span>` : ""}${chipLingua(r)}${l.substituiu ? `<span class="chip warn">Substituiu leitura anterior</span>` : ""}${l.aviso ? `<span class="chip warn">${esc(l.aviso)}</span>` : ""}${brancos ? `<span class="chip warn">${brancos} em branco</span>` : ""}${duplas ? `<span class="chip bad">${duplas} com marcação dupla</span>` : ""}</div>
+      ${r.lingua != null ? `<label class="campo" style="max-width:260px"><span>Língua estrangeira <small>(muda o gabarito das questões de língua)</small></span><select data-muda="lingua-card" data-res="${r.id}">${opcoesLingua(r)}</select></label>` : ""}
       ${!r.alunoId && turma ? `<label class="campo"><span>Vincular a um aluno <small>(opcional)</small></span><select data-muda="vincular" data-res="${r.id}"><option value="">Não vincular</option>${(turma.alunos || []).map((a) => `<option value="${a.id}">${String(a.num).padStart(2, "0")} · ${esc(a.nome)}</option>`).join("")}</select></label>` : ""}
       <details><summary class="muted" style="cursor:pointer">Conferir e corrigir respostas</summary><div style="margin-top:10px">${gradeRespostas(av, r)}</div></details>
       <div><button class="btn peq perigo" data-acao="excluir-leitura" data-res="${r.id}">Excluir esta leitura</button></div>
@@ -407,14 +430,15 @@ function cartaoLeitura(l) {
 
 function chipLingua(r) {
   if (r.lingua == null) return "";
-  if (r.lingua === "*") return `<span class="chip bad">Marcou as duas línguas</span>`;
-  return r.lingua ? `<span class="chip acc">${esc(r.lingua)}</span>` : `<span class="chip warn">Língua em branco</span>`;
+  if (r.lingua === "*") return `<span class="chip bad">Marcou as duas línguas: escolha a língua abaixo</span>`;
+  return r.lingua ? `<span class="chip acc">${esc(r.lingua)}</span>` : `<span class="chip warn">Língua em branco: escolha a língua abaixo</span>`;
 }
 const temLingua = (av) => !!av.comLingua || resultadosDe(av.id).some((r) => r.lingua != null);
+const opcoesLingua = (r) => [["", "Em branco"], ...LINGUAS.map((x) => [x, x]), ["*", "Duas marcadas"]].map(([v, n]) => `<option value="${v}" ${(r.lingua || "") === v ? "selected" : ""}>${n}</option>`).join("");
 const textoLingua = (r) => (!r || r.lingua == null ? "" : r.lingua === "*" ? "Duas marcadas" : r.lingua || "Em branco");
-const classeResp = (v, k) => (v === "*" ? "warn" : !k || k === "-" ? "" : k === "X" || v === k ? "ok" : v === "-" ? "" : "bad");
+const classeResp = (v, k) => (v === "*" ? "warn" : !k || k === "-" || k === "?" ? "" : k === "X" || v === k ? "ok" : v === "-" ? "" : "bad");
 function gradeRespostas(av, r) {
-  const g = gabDe(av, r.versao), Q = infoQ(av);
+  const g = gabDe(av, r.versao, r.lingua), Q = infoQ(av);
   let h = "", si = -1;
   Q.forEach((x, q) => {
     if (x.si !== si) {
@@ -444,9 +468,9 @@ function telaNotas() {
   const esperadas = linhas.filter((l) => l.aluno).length;
   // acertos por questão (cada folha comparada com o gabarito da sua versão)
   const porQ = Array.from({ length: totalQ(av) }, (_, q) => {
-    const vale = lidas.filter((l) => { const k = gabDe(av, l.r.versao)[q]; return k && k !== "-"; });
+    const vale = lidas.filter((l) => { const k = gabDe(av, l.r.versao, l.r.lingua)[q]; return k && k !== "-" && k !== "?"; });
     if (!vale.length) return null;
-    return vale.filter((l) => { const k = gabDe(av, l.r.versao)[q]; return k === "X" || l.r.respostas[q] === k; }).length / vale.length;
+    return vale.filter((l) => { const k = gabDe(av, l.r.versao, l.r.lingua)[q]; return k === "X" || l.r.respostas[q] === k; }).length / vale.length;
   });
   const valeProva = corrigir(av, "", "A").total;
   const multiVer = +av.versoes > 1, comLingua = temLingua(av);
@@ -482,17 +506,17 @@ function linhasNotas(av, filtro) {
     if (filtro && filtro !== t.id) continue;
     for (const a of t.alunos || []) {
       const r = res.find((x) => x.alunoId === a.id && x.turmaId === t.id);
-      linhas.push({ turma: t, aluno: a, r, c: r ? corrigir(av, r.respostas, r.versao) : null });
+      linhas.push({ turma: t, aluno: a, r, c: r ? corrigirRes(av, r) : null });
     }
   }
   for (const r of res.filter((x) => !x.alunoId).sort((a, b) => (a.seq || 0) - (b.seq || 0))) {
     if (filtro && filtro !== "_neutras" && filtro !== r.turmaId) continue;
-    linhas.push({ turma: S.turmas[r.turmaId] || null, aluno: null, r, c: corrigir(av, r.respostas, r.versao) });
+    linhas.push({ turma: S.turmas[r.turmaId] || null, aluno: null, r, c: corrigirRes(av, r) });
   }
   // resultados de alunos que saíram da turma
   for (const r of res.filter((x) => x.alunoId && !linhas.some((l) => l.r === x))) {
     if (filtro && filtro !== r.turmaId) continue;
-    linhas.push({ turma: S.turmas[r.turmaId] || null, aluno: { id: r.alunoId, nome: r.nome, ra: r.ra, num: r.num }, r, c: corrigir(av, r.respostas, r.versao) });
+    linhas.push({ turma: S.turmas[r.turmaId] || null, aluno: { id: r.alunoId, nome: r.nome, ra: r.ra, num: r.num }, r, c: corrigirRes(av, r) });
   }
   return linhas;
 }
@@ -774,7 +798,7 @@ function painelAvaliacao(av0) {
         <label class="campo"><span>Instruções <small>(uma por linha; vazio usa o padrão)</small></span><textarea id="avInstr" rows="5" placeholder="${esc(INSTRUCOES_PADRAO.join("\n"))}">${esc(av.instrucoes)}</textarea></label>
       </details>
     </div>
-    <div class="painel-rodape">${novo ? "" : `<button class="btn perigo" data-acao="excluir-av" data-id="${av.id}" style="margin-right:auto">Excluir</button>`}<button class="btn" data-acao="fechar">Cancelar</button><button class="btn pri" data-acao="salvar-av">Salvar</button></div>`, { av, novo, secs, gabs, pts, ver: "A" });
+    <div class="painel-rodape">${novo ? "" : `<button class="btn perigo" data-acao="excluir-av" data-id="${av.id}" style="margin-right:auto">Excluir</button>`}<button class="btn" data-acao="fechar">Cancelar</button><button class="btn pri" data-acao="salvar-av">Salvar</button></div>`, { av, novo, secs, gabs, pts, ver: "A", lng: LINGUAS[0], linguaQ: [...(av.linguaQ || LINGUA_FAIXA_PADRAO)], gabsEsp: Object.fromEntries([...VERSOES].map((v) => [v, ((av.gabaritosEsp || {})[v] || "").split("")])) });
   desenharSecoes();
 }
 
@@ -826,16 +850,33 @@ function desenharSecoes_() {
   $("#colAviso").innerHTML = erro && /coluna/.test(erro) ? `<div class="aviso erro">${esc(erro)}</div>` : "";
   desenharGabarito();
 }
+const linguaLigada = () => { const c = document.querySelector(".naFolha[data-chave=comLingua]"); return !!(c && c.checked); };
+/* Faixa de língua no editor: { ini, fim } em índices de 0 (fim exclusivo), limitada ao total de questões */
+function faixaEditor() {
+  const p = painelAtual, n = p.secs.reduce((s, x) => s + x.n, 0);
+  const ini = Math.max(1, +p.linguaQ[0] || 1), fim = Math.min(n, +p.linguaQ[1] || 0);
+  return linguaLigada() && ini <= fim ? { ini: ini - 1, fim } : null;
+}
+/* Questões da faixa com sua seção, para desenhar o gabarito de Espanhol */
+function questoesFaixa(f) {
+  const out = [];
+  let q = 0;
+  painelAtual.secs.forEach((x, si) => { for (let i = 0; i < x.n; i++, q++) if (q >= f.ini && q < f.fim) out.push({ q, si, i, L: letrasTipo(x.tipo) }); });
+  return out;
+}
 function desenharGabarito(soGrade) {
   const p = painelAtual, nv = +$("#avVersoes").value, ppq = $("#avPPQ").checked;
   if (VERSOES.indexOf(p.ver) >= nv) p.ver = "A";
+  const fx = faixaEditor();
+  if (!fx) p.lng = LINGUAS[0];
+  if (fx && p.lng === LINGUAS[1]) return desenharGabaritoEsp(soGrade, fx, nv);
   const g = p.gabs[p.ver], vs = VERSOES.slice(0, nv).split("");
   const falta = (v) => p.secs.reduce((s, x, si) => s + p.gabs[v][si].slice(0, x.n).filter((c) => c !== "X" && !letrasTipo(x.tipo).includes(c)).length, 0);
-  let h = nv > 1 ? `<div class="abas-ver" role="tablist">${vs.map((v) => { const f = falta(v); return `<button type="button" role="tab" class="aba-ver" data-acao="ver-gab" data-v="${v}" aria-selected="${v === p.ver}">Versão ${v} <small class="${f ? "warn" : "ok"}">${f ? "faltam " + f : "completo"}</small></button>`; }).join("")}</div>` : "";
+  let h = abasVersao(nv, vs, falta) + (fx ? abasLingua(fx) : "");
   const texto = p.secs.map((x, si) => g[si].slice(0, x.n).map((c) => (c === "X" || letrasTipo(x.tipo).includes(c) ? c : ".")).join("")).join("");
   const temCE = p.secs.some((x) => x.tipo === "C");
-  if (!soGrade) $("#avGabTopo").innerHTML = h + `<label class="campo"><span>Digitar ou colar ${nv > 1 ? "a versão " + p.ver : ""} de uma vez <small>(ex.: ABCDA BCDAB${temCE ? "; Certo/Errado: C e E, ou V e F" : ""}; X anula a questão)</small></span><input type="text" id="avGabTexto" class="mono" value="${esc(texto)}" data-muda="gab-texto" autocomplete="off" spellcheck="false"></label>`;
-  else $("#avGabTopo .abas-ver") && ($("#avGabTopo .abas-ver").outerHTML = h);
+  if (!soGrade) $("#avGabTopo").innerHTML = h + `<label class="campo"><span>Digitar ou colar ${nv > 1 ? "a versão " + p.ver : ""}${fx ? " (questões de língua: Inglês)" : ""} de uma vez <small>(ex.: ABCDA BCDAB${temCE ? "; Certo/Errado: C e E, ou V e F" : ""}; X anula a questão)</small></span><input type="text" id="avGabTexto" class="mono" value="${esc(texto)}" data-muda="gab-texto" autocomplete="off" spellcheck="false"></label>`;
+  else atualizarAbas(h);
   h = "";
   let q = 0;
   p.secs.forEach((x, si) => {
@@ -854,6 +895,47 @@ function desenharGabarito(soGrade) {
   const f = falta(p.ver);
   h += `<small class="muted">${f ? `Faltam ${f} questões${nv > 1 ? " na versão " + p.ver : ""}.` : `Gabarito${nv > 1 ? " da versão " + p.ver : ""} completo.`}</small>`;
   $("#avGabGrade").innerHTML = h;
+}
+function abasVersao(nv, vs, falta) {
+  const p = painelAtual;
+  return nv > 1 ? `<div class="abas-ver" role="tablist">${vs.map((v) => { const f = falta(v); return `<button type="button" role="tab" class="aba-ver" data-acao="ver-gab" data-v="${v}" aria-selected="${v === p.ver}">Versão ${v} <small class="${f ? "warn" : "ok"}">${f ? "faltam " + f : "completo"}</small></button>`; }).join("")}</div>` : "";
+}
+function faltaEsp(v, fx) {
+  const a = painelAtual.gabsEsp[v];
+  return questoesFaixa(fx).filter((x, k) => a[k] !== "X" && !x.L.includes(a[k])).length;
+}
+/* Faixa das questões de língua e abas Inglês | Espanhol (aparecem com "Língua estrangeira" ligada) */
+function abasLingua(fx) {
+  const p = painelAtual, fe = faltaEsp(p.ver, fx);
+  return `<div class="faixa-lingua"><span>Questões de língua estrangeira: da</span><input type="number" min="1" value="${fx.ini + 1}" data-muda="lng-faixa" data-k="0" aria-label="Primeira questão de língua"><span>até a</span><input type="number" min="1" value="${fx.fim}" data-muda="lng-faixa" data-k="1" aria-label="Última questão de língua"></div>
+    <div class="abas-ver abas-lingua" role="tablist">
+      <button type="button" role="tab" class="aba-ver" data-acao="lng-gab" data-v="${LINGUAS[0]}" aria-selected="${p.lng === LINGUAS[0]}">Inglês <small class="muted">todas as questões</small></button>
+      <button type="button" role="tab" class="aba-ver" data-acao="lng-gab" data-v="${LINGUAS[1]}" aria-selected="${p.lng === LINGUAS[1]}">Espanhol <small class="${fe ? "warn" : "ok"}">${fe ? "faltam " + fe : "questões " + (fx.ini + 1) + " a " + fx.fim}</small></button>
+    </div>`;
+}
+function atualizarAbas(h) {
+  const box = document.createElement("div");
+  box.innerHTML = h;
+  const novas = box.querySelectorAll(".abas-ver"), atuais = $("#avGabTopo").querySelectorAll(".abas-ver");
+  atuais.forEach((el, k) => novas[k] && el.replaceWith(novas[k]));
+}
+/* Gabarito de Espanhol: só as questões da faixa; o resto da prova usa o gabarito principal */
+function desenharGabaritoEsp(soGrade, fx, nv) {
+  const p = painelAtual, vs = VERSOES.slice(0, nv).split("");
+  const a = p.gabsEsp[p.ver], qs = questoesFaixa(fx);
+  const falta = (v) => p.secs.reduce((s, x, si) => s + p.gabs[v][si].slice(0, x.n).filter((c) => c !== "X" && !letrasTipo(x.tipo).includes(c)).length, 0);
+  const h = abasVersao(nv, vs, falta) + abasLingua(fx);
+  const texto = qs.map((x, k) => (a[k] === "X" || x.L.includes(a[k]) ? a[k] : ".")).join("");
+  if (!soGrade) $("#avGabTopo").innerHTML = h + `<label class="campo"><span>Digitar ou colar o gabarito de Espanhol${nv > 1 ? " da versão " + p.ver : ""} <small>(só as questões ${fx.ini + 1} a ${fx.fim})</small></span><input type="text" id="avGabTexto" class="mono" value="${esc(texto)}" data-muda="gab-texto" autocomplete="off" spellcheck="false"></label>`;
+  else atualizarAbas(h);
+  let g = `<div class="sec-titulo">Espanhol <small class="muted">· da questão ${fx.ini + 1} à ${fx.fim}; as demais seguem o gabarito principal</small></div><div class="gab">`;
+  qs.forEach((x, k) => {
+    g += `<div class="gq"><span>${x.q + 1}</span>`;
+    for (const L of x.L) g += `<button type="button" class="bol" data-acao="gab" data-esp="${k}" data-v="${L}" aria-pressed="${a[k] === L}">${L}</button>`;
+    g += `<button type="button" class="bol anula" data-acao="gab" data-esp="${k}" data-v="X" aria-pressed="${a[k] === "X"}" title="Anular questão (todos ganham o ponto)">X</button></div>`;
+  });
+  const fe = faltaEsp(p.ver, fx);
+  $("#avGabGrade").innerHTML = g + `</div><small class="muted">${fe ? `Faltam ${fe} questões no gabarito de Espanhol.` : "Gabarito de Espanhol completo."}</small>`;
 }
 function ajustarSecoes() {
   // garante que os vetores de gabarito e pontos acompanhem o número de questões de cada seção
@@ -879,6 +961,8 @@ function salvarAvaliacao() {
   const nv = +$("#avVersoes").value, ppq = $("#avPPQ").checked;
   const gabaritos = {};
   for (const v of VERSOES.slice(0, nv)) gabaritos[v] = p.secs.map((x, si) => p.gabs[v][si].slice(0, x.n).map((c) => (c === "X" || letrasTipo(x.tipo).includes(c) ? c : "-")).join("")).join("");
+  const fx = faixaEditor(), gabaritosEsp = {};
+  if (fx) for (const v of VERSOES.slice(0, nv)) gabaritosEsp[v] = questoesFaixa(fx).map((x, k) => { const c = p.gabsEsp[v][k]; return c === "X" || x.L.includes(c) ? c : "-"; }).join("");
   const pontos = ppq ? p.secs.flatMap((x, si) => p.pts[si].slice(0, x.n).map((v) => (v === "" || v == null ? null : +v))) : [];
   const dados = {
     ...av,
@@ -888,7 +972,7 @@ function salvarAvaliacao() {
     ...Object.fromEntries([...document.querySelectorAll(".naFolha")].map((c) => [c.dataset.chave, c.dataset.chave.startsWith("com") ? c.checked : !c.checked])),
     tipo: document.querySelector("input[name=avTipo]:checked").value,
     secoes: p.secs.map((s) => ({ nome: s.nome.trim(), tipo: s.tipo, n: s.n, certo: s.certo, errado: s.errado })),
-    versoes: nv, gabaritos, anulaErrada: $("#avAnula").checked, pontoPorQuestao: ppq, pontos,
+    versoes: nv, gabaritos, linguaQ: fx ? [fx.ini + 1, fx.fim] : p.linguaQ, gabaritosEsp: fx ? gabaritosEsp : av.gabaritosEsp || {}, anulaErrada: $("#avAnula").checked, pontoPorQuestao: ppq, pontos,
     numChamada: $("#avNum").checked, colunas: +$("#avColunas").value || "",
     turmas: [...document.querySelectorAll(".avTurma:checked")].map((c) => c.value),
     transcricao: $("#avTrans").checked, transcricaoTexto: $("#avTransTxt").value.trim(), instrucoes: $("#avInstr").value.trim(),
@@ -910,14 +994,14 @@ function painelResultado(avId, turmaId, alunoId, resId) {
   const aluno = turma && alunoId ? (turma.alunos || []).find((a) => a.id === alunoId) : null;
   const novo = !r;
   if (!r) r = { id: `${avId}__${turmaId}__${alunoId}`, avaliacaoId: avId, turmaId, alunoId, nome: aluno ? aluno.nome : "", ra: aluno ? aluno.ra : "", num: aluno ? aluno.num : null, respostas: "-".repeat(totalQ(av)), versao: "A", origem: "manual", tipo: "nominal" };
-  const c = corrigir(av, r.respostas, r.versao);
+  const c = corrigirRes(av, r);
   abrirPainel(`${cabPainel(esc(aluno ? aluno.nome : r.nome || "Folha neutra" + (r.seq ? " nº " + r.seq : "")))}
     <div class="painel-corpo">
       <p class="muted" style="margin:0">${esc(av.titulo)} · ${esc(turma ? turma.nome : "sem turma")}${r.lidoEm ? " · lida em " + dataCurta(r.lidoEm) : novo ? " · ainda não lida: lance as respostas à mão se precisar" : ""}${r.origem === "manual" && !novo ? " · lançada/ajustada à mão" : ""}</p>
       <div class="resumo"><div><b id="resNota">${fmt(c.nota)}</b><span>nota (de ${fmt(c.total)})</span></div><div><b id="resAc">${c.ac}/${c.tot}</b><span>certas</span></div><div><b id="resEr">${c.er}</b><span>erradas</span></div></div>
       ${r.imagem ? `<button type="button" class="btn" data-acao="ver-folha" data-res="${r.id}" style="justify-self:start">Ver folha corrigida</button>` : ""}
       ${+av.versoes > 1 ? `<label class="campo" style="max-width:220px"><span>Versão da prova</span><select data-muda="ver-painel">${VERSOES.slice(0, av.versoes).split("").map((v) => `<option value="${v}" ${(r.versao || "A") === v ? "selected" : ""}>Versão ${v}</option>`).join("")}</select></label>` : ""}
-      ${av.comLingua || r.lingua != null ? `<label class="campo" style="max-width:220px"><span>Língua estrangeira</span><select data-muda="lingua-painel">${[["", "Em branco"], ...LINGUAS.map((x) => [x, x]), ["*", "Duas marcadas"]].map(([v, n]) => `<option value="${v}" ${(r.lingua || "") === v ? "selected" : ""}>${n}</option>`).join("")}</select></label>` : ""}
+      ${av.comLingua || r.lingua != null ? `<label class="campo" style="max-width:220px"><span>Língua estrangeira</span><select data-muda="lingua-painel">${opcoesLingua(r)}</select></label>` : ""}
       ${!r.alunoId ? `<label class="campo"><span>Nome <small>(opcional)</small></span><input type="text" id="resNome" value="${esc(r.nome || "")}"></label>` : ""}
       <div id="resGrade">${gradeRespostas(av, r).replaceAll('data-muda="resp"', 'data-muda="resp-painel"')}</div>
     </div>
@@ -925,7 +1009,7 @@ function painelResultado(avId, turmaId, alunoId, resId) {
 }
 function atualizarPainelResultado() {
   const { r, av } = painelAtual;
-  const c = corrigir(av, r.respostas, r.versao);
+  const c = corrigirRes(av, r);
   $("#resNota").textContent = fmt(c.nota); $("#resAc").textContent = `${c.ac}/${c.tot}`; $("#resEr").textContent = c.er;
 }
 
@@ -939,9 +1023,10 @@ async function processarCanvas(canvas, arquivo) {
   if (!av) return { erro: "Esta folha é de uma avaliação que não está na sua conta (pode ter sido excluída ou ser de outro professor).", arquivo };
   const turma = info.turmaId ? S.turmas[info.turmaId] : null;
   const versao = info.ver || "A";
-  const previa = previaLeitura(canvas, L, gabDe(av, versao), 360).toDataURL("image/jpeg", 0.72);
+  const linguaLida = info.L.lingua ? L.lingua || "" : undefined;
+  const previa = previaLeitura(canvas, L, gabDe(av, versao, linguaLida), 360).toDataURL("image/jpeg", 0.72);
   let imagem = "";
-  try { imagem = imagemCorrigida(canvas, L, gabDe(av, versao)); } catch (e) { /* sem imagem ampliada */ }
+  try { imagem = imagemCorrigida(canvas, L, gabDe(av, versao, linguaLida)); } catch (e) { /* sem imagem ampliada */ }
   const n = totalQ(av);
   const respostas = (L.resp + "-".repeat(n)).slice(0, Math.max(n, L.resp.length));
   let res, substituiu = false, aviso = "";
@@ -1054,7 +1139,7 @@ async function abrirCamera() {
           if (navigator.vibrate) navigator.vibrate(120);
           ui.leituras.unshift(r);
           const res = S.resultados[r.resId] || r.res, av = AV(res.avaliacaoId);
-          status.innerHTML = `<strong>${esc(res.alunoId ? res.nome : "Folha neutra")}: ${fmt(corrigir(av, res.respostas, res.versao).nota)}</strong> · salvo${r.aviso ? " · " + esc(r.aviso) : ""}. <button class="btn peq pri" data-acao="proxima" style="margin-left:8px">Próxima folha</button>`;
+          status.innerHTML = `<strong>${esc(res.alunoId ? res.nome : "Folha neutra")}: ${fmt(corrigirRes(av, res).nota)}</strong> · salvo${r.aviso ? " · " + esc(r.aviso) : ""}. <button class="btn peq pri" data-acao="proxima" style="margin-left:8px">Próxima folha</button>`;
           render();
         } else {
           const n = (r.marcas || []).length;
@@ -1082,21 +1167,87 @@ function fecharCamera() {
 }
 
 /* ===================== Exportação ===================== */
+// Uma célula pode ser um valor simples ou { v, txt, pct, cor } (porcentagem com cor de desempenho)
+const textoCelula = (c) => (c && typeof c === "object" ? c.txt : c);
+const NIVEIS = [[0.4, "Crítica", "F8D7DA"], [0.7, "Atenção", "FFF3CD"], [Infinity, "Boa", "D1E7DD"]];
+const nivel = (p) => NIVEIS.find(([lim]) => p < lim);
+const celPct = (p) => (p == null ? "" : { v: p, pct: true, txt: (Math.round(p * 1000) / 10).toLocaleString("pt-BR") + "%", cor: nivel(p)[2] });
+const nomeSecao = (av, si) => av.secoes[si].nome || (av.secoes.length > 1 ? "Seção " + (si + 1) : "Acertos");
+const mostraSecoes = (av) => av.secoes.length > 1 || !!av.secoes[0].nome;
+/* Acertos de um resultado em cada seção (com o gabarito da versão e da língua do aluno) */
+function acertosPorSecao(av, r) {
+  const g = gabDe(av, r.versao, r.lingua), out = av.secoes.map(() => 0);
+  infoQ(av).forEach((x, q) => { const k = g[q]; if (k && k !== "-" && k !== "?" && (k === "X" || r.respostas[q] === k)) out[x.si]++; });
+  return out;
+}
 function tabelaNotas(av, turmaId) {
-  const n = totalQ(av), multiVer = +av.versoes > 1, comLingua = temLingua(av);
-  const cab = ["Turma", "Nº", "R.A.", "Aluno", ...(multiVer ? ["Versão"] : []), ...(comLingua ? ["Língua estrangeira"] : []), "Certas", "Erradas", "Questões válidas", "Nota", "Valor da prova", "Situação", "Lida em", ...Array.from({ length: n }, (_, i) => "Q" + (i + 1))];
+  const n = totalQ(av), multiVer = +av.versoes > 1, comLingua = temLingua(av), secs = mostraSecoes(av);
+  const cab = ["Turma", "Nº", "Aluno", "Matrícula (R.A.)", ...(multiVer ? ["Versão"] : []), ...(comLingua ? ["Língua estrangeira"] : []),
+    ...(secs ? av.secoes.map((x, si) => `${nomeSecao(av, si)} (de ${x.n})`) : []),
+    "Total de acertos", "Erradas", "Em branco", "Nota", "Valor da prova", "Situação", "Lida em", ...Array.from({ length: n }, (_, i) => "Q" + (i + 1))];
   const linhas = linhasNotas(av, turmaId).map((l) => [
     l.turma ? l.turma.nome : "",
     l.aluno ? l.aluno.num : l.r && l.r.seq ? "#" + l.r.seq : "",
-    l.aluno ? l.aluno.ra || "" : "",
     l.aluno ? l.aluno.nome : "Folha neutra" + (l.r.nome ? " · " + l.r.nome : ""),
+    l.aluno ? l.aluno.ra || "" : "",
     ...(multiVer ? [l.r ? l.r.versao || "A" : ""] : []),
     ...(comLingua ? [textoLingua(l.r)] : []),
-    l.r ? l.c.ac : "", l.r ? l.c.er : "", l.r ? l.c.tot : "", l.r ? Math.round(l.c.nota * 100) / 100 : "", l.r ? l.c.total : "",
+    ...(secs ? (l.r ? acertosPorSecao(av, l.r) : av.secoes.map(() => "")) : []),
+    l.r ? l.c.ac : "", l.r ? l.c.er : "", l.r ? (l.r.respostas.slice(0, n).match(/-/g) || []).length : "",
+    l.r ? Math.round(l.c.nota * 100) / 100 : "", l.r ? l.c.total : "",
     l.r ? "Corrigida" : "Pendente", l.r ? dataCurta(l.r.lidoEm) : "",
     ...Array.from({ length: n }, (_, q) => (l.r ? (l.r.respostas[q] || "-").replace("*", "2+").replace("-", "") : "")),
   ]);
   return [cab, ...linhas];
+}
+/* Estatística de uma questão num grupo de folhas: quantos fizeram, acertaram, deixaram em branco e o erro mais comum */
+function estatQuestao(av, R, q) {
+  let fiz = 0, ac = 0, branco = 0;
+  const erros = {};
+  for (const r of R) {
+    const k = gabDe(av, r.versao, r.lingua)[q];
+    if (!k || k === "-" || k === "?") continue;
+    fiz++;
+    const v = r.respostas[q] || "-";
+    if (k === "X" || v === k) ac++;
+    else if (v === "-") branco++;
+    else if (v !== "*") erros[v] = (erros[v] || 0) + 1;
+  }
+  const [letra, qtd] = Object.entries(erros).sort((a, b) => b[1] - a[1])[0] || [];
+  return { fiz, ac, branco, pct: fiz ? ac / fiz : null, erro: letra ? `${letra} (${Math.round((qtd / fiz) * 100)}%)` : "" };
+}
+function turmasDaExportacao(av, R) {
+  const ids = [...new Set([...(av.turmas || []), ...R.map((r) => r.turmaId).filter(Boolean)])];
+  return ordenarTurmas(ids.map((id) => S.turmas[id]).filter(Boolean));
+}
+/* Aba "Por questão": % de acerto de cada questão (geral e por turma), para achar os déficits */
+function tabelaPorQuestao(av) {
+  const R = resultadosDe(av.id), Q = infoQ(av), nv = +av.versoes || 1, fx = faixaLingua(av);
+  const ts = turmasDaExportacao(av, R), porTurma = ts.length > 1;
+  const cab = ["Questão", "Seção", "Gabarito", "Acertaram", "Fizeram", "% de acerto", "Situação", "Erro mais marcado", "Em branco", ...(porTurma ? ts.map((t) => "% " + t.nome) : [])];
+  const gabTexto = (q, lingua) => VERSOES.slice(0, nv).split("").map((v) => { const c = gabDe(av, v, lingua)[q] || "-"; const t = c === "X" ? "Anulada" : c === "-" ? "" : c; return nv > 1 ? `${v}: ${t}` : t; }).join(" · ");
+  const linha = (rot, q, Rg, lingua) => {
+    const e = estatQuestao(av, Rg, q);
+    return [rot, nomeSecao(av, Q[q].si), gabTexto(q, lingua), e.ac, e.fiz, celPct(e.pct), e.pct == null ? "" : nivel(e.pct)[1], e.erro, e.branco,
+      ...(porTurma ? ts.map((t) => celPct(estatQuestao(av, Rg.filter((r) => r.turmaId === t.id), q).pct)) : [])];
+  };
+  const linhas = [];
+  Q.forEach((_, q) => {
+    if (fx && q >= fx[0] && q < fx[1]) LINGUAS.forEach((lg) => linhas.push(linha(`${q + 1} · ${lg}`, q, R.filter((r) => r.lingua === lg), lg)));
+    else linhas.push(linha(q + 1, q, R));
+  });
+  return [cab, ...linhas];
+}
+/* Aba "Por seção": média de acertos de cada seção (área), geral e por turma */
+function tabelaPorSecao(av) {
+  const R = resultadosDe(av.id), ts = turmasDaExportacao(av, R), porTurma = ts.length > 1;
+  const media = (Rg, si) => (Rg.length ? Rg.reduce((s, r) => s + acertosPorSecao(av, r)[si], 0) / Rg.length : null);
+  const cab = ["Seção", "Questões", "Média de acertos", "% de acerto", "Situação", ...(porTurma ? ts.map((t) => "% " + t.nome) : [])];
+  return [cab, ...av.secoes.map((x, si) => {
+    const m = media(R, si), p = m == null ? null : m / x.n;
+    return [nomeSecao(av, si), x.n, m == null ? "" : Math.round(m * 10) / 10, celPct(p), p == null ? "" : nivel(p)[1],
+      ...(porTurma ? ts.map((t) => { const mt = media(R.filter((r) => r.turmaId === t.id), si); return celPct(mt == null ? null : mt / x.n); }) : [])];
+  })];
 }
 function nomeAba(s, usados) {
   let n = String(s).replace(/[\[\]:*?/\\]/g, "-").slice(0, 31) || "Turma";
@@ -1107,27 +1258,59 @@ function nomeAba(s, usados) {
 }
 function abasExportacao(av) {
   const ts = (av.turmas || []).map((id) => S.turmas[id]).filter(Boolean);
-  const abas = ts.map((t) => ({ titulo: t.nome, dados: tabelaNotas(av, t.id) }));
-  if (resultadosDe(av.id).some((r) => !r.alunoId)) abas.push({ titulo: "Folhas neutras", dados: tabelaNotas(av, "_neutras") });
-  const Q = infoQ(av), nv = +av.versoes || 1;
+  const abas = ts.map((t) => ({ titulo: t.nome, dados: tabelaNotas(av, t.id), tipo: "alunos" }));
+  if (resultadosDe(av.id).some((r) => !r.alunoId)) abas.push({ titulo: "Folhas neutras", dados: tabelaNotas(av, "_neutras"), tipo: "alunos" });
+  abas.push({ titulo: "Por questão", dados: tabelaPorQuestao(av), tipo: "questoes" });
+  if (av.secoes.length > 1) abas.push({ titulo: "Por seção", dados: tabelaPorSecao(av), tipo: "secoes" });
+  const Q = infoQ(av), nv = +av.versoes || 1, fx = faixaLingua(av);
   const g = [["Questão", ...Q.map((_, i) => i + 1)]];
-  if (av.secoes.length > 1) g.push(["Seção", ...Q.map((x) => av.secoes[x.si].nome || "Seção " + (x.si + 1))]);
+  if (av.secoes.length > 1) g.push(["Seção", ...Q.map((x) => nomeSecao(av, x.si))]);
   g.push(["Tipo", ...Q.map((x) => (x.tipo === "C" ? "Certo/Errado" : "A-" + LETRAS[+x.tipo - 1]))]);
-  for (const v of VERSOES.slice(0, nv)) g.push([nv > 1 ? "Gabarito " + v : "Gabarito", ...Q.map((_, q) => { const c = gabDe(av, v)[q] || "-"; return c === "X" ? "Anulada" : c === "-" ? "" : c; })]);
+  const linhaGab = (rot, v, lingua) => [rot, ...Q.map((_, q) => { const c = gabDe(av, v, lingua)[q] || "-"; return c === "X" ? "Anulada" : c === "-" ? "" : c; })];
+  for (const v of VERSOES.slice(0, nv)) {
+    const rot = nv > 1 ? "Gabarito " + v : "Gabarito";
+    if (fx) g.push(linhaGab(rot + " (Inglês)", v), linhaGab(rot + " (Espanhol)", v, LINGUAS[1]));
+    else g.push(linhaGab(rot, v));
+  }
   g.push(["Pontos (certa)", ...Q.map((x) => x.certo)], ["Desconto (errada)", ...Q.map((x) => x.errado)]);
-  abas.push({ titulo: "Gabarito", dados: g });
+  abas.push({ titulo: "Gabarito", dados: g, tipo: "gabarito" });
   return abas;
 }
-function exportarXLSX() {
+async function exportarXLSX() {
   const av = avAtual();
   if (!av) return;
-  const wb = XLSX.utils.book_new(), usados = new Set();
+  try { if (!window.ExcelJS) await carregarScript("https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"); }
+  catch (e) { toast("Não consegui carregar o gerador de planilhas. Verifique a internet."); return; }
+  const wb = new ExcelJS.Workbook(), usados = new Set();
+  const borda = { style: "thin", color: { argb: "FFD0D0D0" } };
   for (const a of abasExportacao(av)) {
-    const ws = XLSX.utils.aoa_to_sheet(a.dados);
-    ws["!cols"] = a.dados[0].map((c, i) => ({ wch: /^Q\d+$/.test(c) || typeof c === "number" ? 5 : i === 3 ? 42 : i === 0 ? 18 : 11 }));
-    XLSX.utils.book_append_sheet(wb, ws, nomeAba(a.titulo, usados));
+    const ws = wb.addWorksheet(nomeAba(a.titulo, usados), { views: [{ state: "frozen", xSplit: a.tipo === "alunos" ? 3 : a.tipo === "gabarito" ? 1 : 0, ySplit: 1 }] });
+    a.dados.forEach((linha) => {
+      const row = ws.addRow(linha.map((c) => (c && typeof c === "object" ? c.v : c === "" ? null : c)));
+      linha.forEach((c, i) => {
+        const cel = row.getCell(i + 1);
+        cel.border = { top: borda, left: borda, bottom: borda, right: borda };
+        if (c && typeof c === "object") {
+          if (c.pct) cel.numFmt = "0.0%";
+          if (c.cor) cel.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF" + c.cor } };
+        }
+      });
+    });
+    // situação colorida na aba de questões e de seções
+    if (a.tipo === "questoes" || a.tipo === "secoes") {
+      const col = a.dados[0].indexOf("Situação") + 1;
+      ws.eachRow((row, i) => { if (i === 1) return; const v = row.getCell(col).value, n = NIVEIS.find((x) => x[1] === v); if (n) row.getCell(col).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF" + n[2] } }; });
+    }
+    const cab = ws.getRow(1);
+    cab.font = { bold: true };
+    cab.alignment = { vertical: "middle", wrapText: true };
+    cab.eachCell((c) => { c.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFE9ECF2" } }; });
+    ws.columns.forEach((col, i) => {
+      const t = String(a.dados[0][i] ?? "");
+      col.width = a.tipo === "gabarito" ? (i ? 9 : 22) : /^Q\d+$/.test(t) ? 5 : t === "Aluno" ? 42 : t === "Erro mais marcado" ? 18 : t === "Seção" || t === "Gabarito" ? 20 : Math.max(10, Math.min(24, t.length + 2));
+    });
   }
-  const buf = XLSX.write(wb, { type: "array", bookType: "xlsx" });
+  const buf = await wb.xlsx.writeBuffer();
   salvarArquivo(new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }), nomeArquivo(`Notas - ${av.titulo}${av.componente ? " - " + av.componente : ""}.xlsx`));
 }
 async function exportarSheets() {
@@ -1158,7 +1341,7 @@ async function exportarSheets() {
     const faltam = abas.filter((a) => !existentes.some((e) => e.title === a.nome));
     if (faltam.length) await api(`https://sheets.googleapis.com/v4/spreadsheets/${sid}:batchUpdate`, "POST", { requests: faltam.map((a) => ({ addSheet: { properties: { title: a.nome } } })) });
     await api(`https://sheets.googleapis.com/v4/spreadsheets/${sid}/values:batchClear`, "POST", { ranges: abas.map((a) => `'${a.nome}'`) });
-    await api(`https://sheets.googleapis.com/v4/spreadsheets/${sid}/values:batchUpdate`, "POST", { valueInputOption: "RAW", data: abas.map((a) => ({ range: `'${a.nome}'!A1`, values: a.dados.map((l) => l.map((v) => (v === "" || v == null ? "" : v))) })) });
+    await api(`https://sheets.googleapis.com/v4/spreadsheets/${sid}/values:batchUpdate`, "POST", { valueInputOption: "RAW", data: abas.map((a) => ({ range: `'${a.nome}'!A1`, values: a.dados.map((l) => l.map((v) => (v === "" || v == null ? "" : textoCelula(v)))) })) });
     await Nuvem.put("avaliacoes", av.id, { ...av, planilhaId: sid, planilhaEm: agora() });
     toast("Planilha atualizada no seu Google Drive.");
   } catch (e) { toast("Não foi possível enviar para o Google Planilhas: " + e.message, 7000); }
@@ -1231,12 +1414,15 @@ const acoes = {
   "salvar-av": salvarAvaliacao,
   "excluir-av": (el) => armar(el, () => { Nuvem.del("avaliacoes", el.dataset.id); fecharPainel(); toast("Avaliação excluída. As notas lidas continuam guardadas."); }),
   gab: (el) => {
-    const p = painelAtual, si = +el.dataset.si, i = +el.dataset.i, v = el.dataset.v;
+    const p = painelAtual, v = el.dataset.v;
+    if (el.dataset.esp != null) { const a = p.gabsEsp[p.ver], k = +el.dataset.esp; a[k] = a[k] === v ? "-" : v; desenharGabarito(); return; }
+    const si = +el.dataset.si, i = +el.dataset.i;
     const a = p.gabs[p.ver][si];
     a[i] = a[i] === v ? "-" : v;
     desenharGabarito();
   },
   "ver-gab": (el) => { painelAtual.ver = el.dataset.v; desenharGabarito(); },
+  "lng-gab": (el) => { painelAtual.lng = el.dataset.v; desenharGabarito(); },
   "sec-add": () => {
     const p = painelAtual, ult = p.secs[p.secs.length - 1];
     p.secs.push({ nome: "", tipo: "C", n: 10, certo: ult ? ult.certo : 1, errado: 0 });
@@ -1355,6 +1541,8 @@ document.addEventListener("change", (e) => {
   } else if (m === "av-anula" || m === "av-ppq" || m === "av-recalc") desenharSecoes();
   else if (m === "av-versoes") desenharGabarito();
   else if (m === "av-nafolha") el.closest(".opcional").classList.toggle("desligado", !el.checked);
+  else if (m === "lng-faixa") { painelAtual.linguaQ[+el.dataset.k] = Math.max(1, Math.round(+el.value || 1)); desenharGabarito(); }
+  else if (el.classList.contains("naFolha") && el.dataset.chave === "comLingua") desenharGabarito();
   else if (m === "av-tipo") { $("#avNumLinha").hidden = document.querySelector("input[name=avTipo]:checked").value !== "neutra"; desenharSecoes(); }
   else if (m === "pq") {
     painelAtual.pts[+el.dataset.si][+el.dataset.i] = el.value === "" ? "" : Math.max(0, +el.value || 0);
@@ -1370,9 +1558,14 @@ document.addEventListener("change", (e) => {
     const n = totalQ(av);
     const arr = (r.respostas + "-".repeat(n)).split(""); arr[+el.dataset.q] = el.value; r.respostas = arr.join("").slice(0, Math.max(n, r.respostas.length)); r._editado = true;
     atualizarPainelResultado();
-    el.parentElement.className = "rq " + classeResp(el.value, gabDe(av, r.versao)[+el.dataset.q]);
+    el.parentElement.className = "rq " + classeResp(el.value, gabDe(av, r.versao, r.lingua)[+el.dataset.q]);
+  } else if (m === "lingua-card") {
+    const r = S.resultados[el.dataset.res];
+    if (r) { Nuvem.put("resultados", r.id, { ...r, lingua: el.value }); render(); toast("Língua alterada e nota recalculada."); }
   } else if (m === "lingua-painel") {
     painelAtual.r.lingua = el.value; painelAtual.r._editado = true;
+    $("#resGrade").innerHTML = gradeRespostas(painelAtual.av, painelAtual.r).replaceAll('data-muda="resp"', 'data-muda="resp-painel"');
+    atualizarPainelResultado();
   } else if (m === "ver-painel") {
     const { r, av } = painelAtual;
     r.versao = el.value; r._editado = true;
@@ -1396,6 +1589,17 @@ document.addEventListener("input", (e) => {
   if (e.target.dataset.muda !== "gab-texto") return;
   const p = painelAtual;
   const v = e.target.value.toUpperCase().replace(/[^A-EXVF.\-_?]/g, "").split("");
+  const fx = faixaEditor();
+  if (fx && p.lng === LINGUAS[1]) {
+    const a = p.gabsEsp[p.ver];
+    questoesFaixa(fx).forEach((x, k) => {
+      let c = v[k];
+      if (x.L === "CE") c = c === "V" ? "C" : c === "F" ? "E" : c;
+      a[k] = c && (c === "X" || x.L.includes(c)) ? c : "-";
+    });
+    desenharGabarito(true);
+    return;
+  }
   let k = 0;
   p.secs.forEach((x, si) => {
     const L = letrasTipo(x.tipo), a = p.gabs[p.ver][si];
